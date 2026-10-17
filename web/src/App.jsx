@@ -1,0 +1,54 @@
+import { lazy, Suspense } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useApp } from './lib/ctx.jsx';
+import Layout from './components/Layout.jsx';
+import { Loading } from './components/ui.jsx';
+import Login from './pages/Login.jsx';
+
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
+const Bku = lazy(() => import('./pages/Bku.jsx'));
+const PenutupanKas = lazy(() => import('./pages/PenutupanKas.jsx'));
+const Rekonsiliasi = lazy(() => import('./pages/Rekonsiliasi.jsx'));
+const Kalkulator = lazy(() => import('./pages/Kalkulator.jsx'));
+const RegisterPajak = lazy(() => import('./pages/RegisterPajak.jsx'));
+const Coretax = lazy(() => import('./pages/Coretax.jsx'));
+const OlahData = lazy(() => import('./pages/OlahData.jsx'));
+const Realisasi = lazy(() => import('./pages/Realisasi.jsx'));
+const Laporan = lazy(() => import('./pages/Laporan.jsx'));
+const Master = lazy(() => import('./pages/Master.jsx'));
+const Sistem = lazy(() => import('./pages/Sistem.jsx'));
+const Audit = lazy(() => import('./pages/Audit.jsx'));
+const Pengguna = lazy(() => import('./pages/Pengguna.jsx'));
+const CetakBku = lazy(() => import('./pages/CetakBku.jsx'));
+const Kuitansi = lazy(() => import('./pages/Kuitansi.jsx'));
+
+export default function App() {
+  const { user } = useApp();
+  if (user === undefined) return <Loading text="Menyiapkan aplikasi…" />;
+  if (!user) return <Login />;
+  return (
+    <Suspense fallback={<Loading />}>
+      <Routes>
+        <Route path="/cetak/bku" element={<CetakBku />} />
+        <Route path="/cetak/kuitansi/:id" element={<Kuitansi />} />
+        <Route element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="bku" element={<Bku />} />
+          <Route path="penutupan-kas" element={<PenutupanKas />} />
+          <Route path="rekonsiliasi" element={<Rekonsiliasi />} />
+          <Route path="pajak/kalkulator" element={<Kalkulator />} />
+          <Route path="pajak/register" element={<RegisterPajak />} />
+          <Route path="pajak/coretax" element={<Coretax />} />
+          <Route path="olah-data" element={<OlahData />} />
+          <Route path="realisasi" element={<Realisasi />} />
+          <Route path="laporan" element={<Laporan />} />
+          <Route path="master" element={<Master />} />
+          <Route path="sistem" element={<Sistem />} />
+          <Route path="audit" element={<Audit />} />
+          <Route path="pengguna" element={<Pengguna />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
+  );
+}

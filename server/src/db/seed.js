@@ -1,0 +1,275 @@
+// Data contoh realistis untuk demo: 4 SKPD, transaksi Jan s.d. hari ini, pajak, anggaran.
+// Jalankan: npm run seed  (AKAN MENGHAPUS data transaksi yang ada)
+import { mkdir } from 'node:fs/promises';
+import ExcelJS from 'exceljs';
+import { pool, tx } from '../db.js';
+import { migrate } from './migrate.js';
+import { hashPassword } from '../auth.js';
+import { catatTransaksi, setorPajak } from '../lib/transaksi.js';
+import { insertEntries } from '../lib/ledger.js';
+import { insertPajak } from '../routes/pajak.js';
+import { potonganBelanja, pph21Bulanan, pph21HonorASN, pph21BukanPegawai } from '../../../shared/tax.js';
+
+let seed = 20260117;
+const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const pick = (a) => a[Math.floor(rnd() * a.length)];
+const between = (a, b) => Math.round(a + rnd() * (b - a));
+const round = (n, to = 1000) => Math.round(n / to) * to;
+const ymd = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const ntpn = () => Array.from({ length: 16 }, () => pick('ABCDEF0123456789'.split(''))).join('');
+
+const SKPD = [
+  { kode: '5.02.0.00.0.00.01.0000', nama: 'Badan Keuangan dan Aset Daerah', npwp: '0012345678901000', kepala_nama: 'Dr. H. Ahmad Fauzi, S.E., M.Si.', kepala_nip: '197203151998031004', bendahara_nama: 'Siti Rahmawati, S.E.', bendahara_nip: '198507122010012015', alamat: 'Jl. Jenderal Sudirman No. 1', skala: 1 },
+  { kode: '1.01.0.00.0.00.01.0000', nama: 'Dinas Pendidikan', npwp: '0023456789012000', kepala_nama: 'Drs. Bambang Sutrisno, M.Pd.', kepala_nip: '196905101994031007', bendahara_nama: 'Rina Kartika, S.Ak.', bendahara_nip: '198911202014032008', alamat: 'Jl. Pendidikan No. 12', skala: 0.8 },
+  { kode: '1.02.0.00.0.00.01.0000', nama: 'Dinas Kesehatan', npwp: '0034567890123000', kepala_nama: 'dr. Linda Hapsari, M.Kes.', kepala_nip: '197512082003122003', bendahara_nama: 'Agus Prasetyo, A.Md.', bendahara_nip: '199002142015031002', alamat: 'Jl. Kesehatan No. 5', skala: 0.7 },
+  { kode: '1.03.0.00.0.00.01.0000', nama: 'Dinas Pekerjaan Umum dan Penataan Ruang', npwp: '0045678901234000', kepala_nama: 'Ir. Hendra Wijaya, M.T.', kepala_nip: '197001011996031009', bendahara_nama: 'Dewi Lestari, S.E.', bendahara_nip: '198804252012122001', alamat: 'Jl. Ahmad Yani No. 30', skala: 1.2 },
+];
+
+// [kode, nama, jenis_belanja (pajak), rentang nilai]
+const REKENING = [
+  ['5.1.01.01.01.0001', 'Belanja Gaji Pokok PNS', null],
+  ['5.1.01.01.02.0001', 'Belanja Tunjangan Keluarga PNS', null],
+  ['5.1.02.01.01.0024', 'Belanja Alat/Bahan untuk Kegiatan Kantor - Alat Tulis Kantor', 'barang', [1_500_000, 25_000_000]],
+  ['5.1.02.01.01.0026', 'Belanja Alat/Bahan untuk Kegiatan Kantor - Bahan Cetak', 'barang', [2_500_000, 18_000_000]],
+  ['5.1.02.01.01.0052', 'Belanja Makanan dan Minuman Rapat', 'jasa', [2_500_000, 15_000_000]],
+  ['5.1.02.02.01.0003', 'Honorarium Narasumber atau Pembahas, Moderator, Pembawa Acara, dan Panitia', 'honor', [1_500_000, 6_000_000]],
+  ['5.1.02.02.01.0026', 'Belanja Jasa Tenaga Administrasi', 'jasa', [4_000_000, 20_000_000]],
+  ['5.1.02.02.01.0055', 'Belanja Jasa Konsultansi Perencanaan', 'jasa', [15_000_000, 90_000_000]],
+  ['5.1.02.03.02.0035', 'Belanja Pemeliharaan Kendaraan Dinas Bermotor Perorangan', 'jasa', [2_500_000, 12_000_000]],
+  ['5.1.02.04.01.0001', 'Belanja Perjalanan Dinas Biasa', null, [1_500_000, 9_000_000]],
+  ['5.1.02.02.01.0061', 'Belanja Tagihan Listrik', null, [8_000_000, 22_000_000]],
+  ['5.2.02.10.01.0002', 'Belanja Modal Personal Computer', 'barang', [25_000_000, 150_000_000]],
+  ['5.2.03.01.01.0001', 'Belanja Modal Bangunan Gedung Kantor', 'konstruksi', [80_000_000, 450_000_000]],
+];
+const NON_ANGGARAN = [['0.0.00.00.00.0001', 'Uang Persediaan (UP)'], ['0.0.00.00.00.0002', 'Pajak dan Potongan (PFK)']];
+
+const REKANAN = [
+  ['CV Maju Jaya Abadi', '0123456789012000', 'Bank Daerah', '1001002003'], ['PT Konsultan Nusantara Prima', '0234567890123000', 'Bank Mandiri', '1230004567'],
+  ['CV Bangun Karya Mandiri', '0345678901234000', 'BRI', '0123010045678'], ['Toko ATK Sentosa', '0456789012345000', 'BNI', '0987654321'],
+  ['PT Sinar Teknologi Informatika', '0567890123456000', 'BCA', '5430987612'], ['CV Rasa Nusantara Catering', '0678901234567000', 'Bank Daerah', '1001009988'],
+  ['PT Percetakan Mitra Grafika', '0789012345678000', 'BRI', '0123010099887'], ['Bengkel Auto Prima', '0890123456789000', 'BNI', '0812345678'],
+];
+
+const NAMA = ['Budi Santoso', 'Sri Wahyuni', 'Andi Pratama', 'Dewi Anggraini', 'Eko Saputro', 'Fitri Handayani', 'Gilang Ramadhan', 'Hesti Purwanti', 'Irfan Hakim', 'Joko Susilo', 'Kartini Sari', 'Lukman Hidayat', 'Maya Puspita', 'Nur Aisyah', 'Oki Setiawan', 'Putri Ayu', 'Rudi Hartono', 'Sinta Maharani', 'Taufik Ismail', 'Umi Kalsum', 'Wahyu Nugroho', 'Yuni Astuti', 'Zainal Arifin', 'Arief Budiman'];
+const GOL = ['II/c', 'II/d', 'III/a', 'III/b', 'III/c', 'III/d', 'IV/a', 'IV/b'];
+const GAJI_GOL = { II: [3_200_000, 4_400_000], III: [4_100_000, 7_800_000], IV: [6_800_000, 11_500_000] };
+const PTKP = ['TK/0', 'TK/1', 'K/0', 'K/1', 'K/2', 'K/3', 'TK/2', 'K/1'];
+
+const OBJEK = [
+  ['21-100-01', 'PPH21', 'Penghasilan pegawai tetap (bulanan, TER)', 0, 100, 'BPMP'],
+  ['21-100-03', 'PPH21', 'Upah pegawai tidak tetap / tenaga kerja lepas', 0, 100, 'BP21'],
+  ['21-100-07', 'PPH21', 'Imbalan kepada tenaga ahli / bukan pegawai', 5, 50, 'BP21'],
+  ['21-100-08', 'PPH21', 'Honorarium narasumber/peserta kegiatan (bukan pegawai)', 5, 50, 'BP21'],
+  ['21-402-01', 'PPH21', 'Honorarium ASN/pejabat yang dibebankan APBN/APBD (final)', 5, 100, 'BP21'],
+  ['22-100-01', 'PPH22', 'Pembelian barang oleh bendahara pemerintah', 1.5, 100, 'BPPU'],
+  ['24-104-01', 'PPH23', 'Imbalan jasa teknik', 2, 100, 'BPPU'],
+  ['24-104-14', 'PPH23', 'Imbalan jasa lain (PMK 141/2015)', 2, 100, 'BPPU'],
+  ['24-100-01', 'PPH23', 'Sewa dan penghasilan lain sehubungan dengan penggunaan harta', 2, 100, 'BPPU'],
+  ['28-403-02', 'PPH4A2', 'Persewaan tanah dan/atau bangunan', 10, 100, 'BPPU'],
+  ['28-409-07', 'PPH4A2', 'Jasa konstruksi - pekerjaan konstruksi kualifikasi kecil', 1.75, 100, 'BPPU'],
+  ['28-409-08', 'PPH4A2', 'Jasa konstruksi - pekerjaan konstruksi kualifikasi menengah/besar', 2.65, 100, 'BPPU'],
+  ['28-409-11', 'PPH4A2', 'Jasa konsultansi konstruksi dengan sertifikat', 3.5, 100, 'BPPU'],
+];
+
+async function writeSamples(pegawai, bankRows) {
+  const dir = new URL('../../../samples/', import.meta.url).pathname;
+  await mkdir(dir, { recursive: true });
+  const save = async (name, header, rows) => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Data');
+    ws.addRow(header).font = { bold: true };
+    rows.forEach((r) => ws.addRow(r));
+    ws.columns.forEach((c) => { c.width = 22; });
+    await wb.xlsx.writeFile(dir + name);
+  };
+  await save('contoh_daftar_gaji_oktober.xlsx', ['NIP', 'Nama Pegawai', 'NPWP', 'Golongan', 'Jabatan', 'Status PTKP', 'Gaji Pokok', 'Tunjangan Keluarga', 'Tunjangan Jabatan', 'Tunjangan Beras'],
+    pegawai.map((p) => [p.nip, p.nama, p.npwp, p.golongan, p.jabatan, p.status_ptkp, p.gaji, Math.round(p.gaji * (p.status_ptkp.startsWith('K') ? 0.1 : 0)), between(5, 25) * 100_000, 289_680]));
+  await save('contoh_honor_narasumber.xlsx', ['Tanggal', 'Nama', 'NIK', 'NPWP', 'Status', 'Golongan', 'Kegiatan', 'Jam', 'Tarif per Jam'],
+    Array.from({ length: 18 }, (_, i) => {
+      const asn = i % 3 !== 0;
+      return [ymd(2026, 10, between(1, 15)), pick(NAMA), String(3300000000000000 + between(1e8, 9e8)), asn ? '' : `0${between(1e13, 9e13)}`, asn ? 'ASN' : 'Non ASN', asn ? pick(['III/a', 'III/c', 'IV/a', 'II/d']) : '', pick(['Bimtek Penatausahaan Keuangan', 'Sosialisasi Coretax', 'Rakor Pengelolaan Aset']), between(2, 6), pick([900_000, 1_000_000, 1_400_000, 1_700_000])];
+    }));
+  await save('contoh_transaksi_belanja.xlsx', ['Tanggal', 'No Bukti', 'Uraian', 'Kode Rekening', 'Nilai'],
+    Array.from({ length: 25 }, (_, i) => {
+      const rek = pick(REKENING.slice(2, 11));
+      return [`${between(1, 16)}/10/2026`, `BKT-IMP-${String(i + 1).padStart(3, '0')}`, `${rek[1]} - kegiatan ${pick(['rutin', 'koordinasi', 'monitoring', 'pelaporan'])}`, rek[0], round(between(...(rek[3] || [1e6, 5e6])) / 3)];
+    }));
+  const csv = ['Tanggal;Keterangan;Debet;Kredit', ...bankRows.map((r) => `${r.tanggal.split('-').reverse().join('/')};${r.ket};${r.debet ? r.debet.toFixed(2).replace('.', ',') : ''};${r.kredit ? r.kredit.toFixed(2).replace('.', ',') : ''}`)].join('\n');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(`${dir}contoh_mutasi_bank_september.csv`, csv);
+  console.log(`[seed] file contoh dibuat di ${dir}`);
+}
+
+async function main() {
+  await migrate();
+  const today = new Date();
+  const TAHUN = 2026;
+  const lastMonth = today.getFullYear() === TAHUN ? today.getMonth() + 1 : 12;
+  const lastDay = today.getFullYear() === TAHUN ? today.getDate() : 31;
+
+  await pool.query(`TRUNCATE bku_verifications, pajak, bku_chain_head, daily_summary, outbox, penutupan_kas, dataset_rows, datasets, pipelines, anggaran, pegawai RESTART IDENTITY CASCADE`);
+  await pool.query('ALTER TABLE bku_entries DISABLE TRIGGER bku_immutable');
+  await pool.query('TRUNCATE bku_entries');
+  await pool.query('ALTER TABLE bku_entries ENABLE TRIGGER bku_immutable');
+
+  const skpdIds = [];
+  for (const s of SKPD) {
+    const { rows: [r] } = await pool.query(`INSERT INTO skpd (kode, nama, npwp, alamat, kepala_nama, kepala_nip, bendahara_nama, bendahara_nip)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama, npwp = EXCLUDED.npwp RETURNING id`,
+    [s.kode, s.nama, s.npwp, s.alamat, s.kepala_nama, s.kepala_nip, s.bendahara_nama, s.bendahara_nip]);
+    skpdIds.push(r.id);
+  }
+  for (const [kode, nama] of REKENING) await pool.query('INSERT INTO rekening (kode, nama, jenis, level) VALUES ($1,$2,$3,6) ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama', [kode, nama, 'belanja']);
+  for (const [kode, nama] of NON_ANGGARAN) await pool.query('INSERT INTO rekening (kode, nama, jenis, level) VALUES ($1,$2,$3,6) ON CONFLICT (kode) DO NOTHING', [kode, nama, 'non_anggaran']);
+  for (const o of OBJEK) await pool.query(`INSERT INTO objek_pajak (kode, jenis_pajak, nama, tarif, dpp_persen, coretax_form, keterangan) VALUES ($1,$2,$3,$4,$5,$6,'Cocokkan dengan referensi kode objek pajak Coretax terbaru')
+    ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama, tarif = EXCLUDED.tarif, coretax_form = EXCLUDED.coretax_form`, o);
+  const rekananIds = [];
+  if (!(await pool.query('SELECT 1 FROM rekanan LIMIT 1')).rows.length) {
+    for (const [nama, npwp, bank, norek] of REKANAN) rekananIds.push((await pool.query('INSERT INTO rekanan (nama, jenis, npwp, bank, no_rekening, alamat) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [nama, 'badan', npwp, bank, norek, 'Kota Contoh'])).rows[0].id);
+  } else rekananIds.push(...(await pool.query('SELECT id FROM rekanan ORDER BY id LIMIT 8')).rows.map((r) => r.id));
+
+  const pw = await hashPassword('bku12345');
+  const users = [
+    ['admin', 'Administrator BKAD', 'admin', skpdIds[0]], ['bendahara', 'Siti Rahmawati, S.E.', 'bendahara', skpdIds[0]],
+    ['verifikator', 'Yusuf Maulana, S.E., Ak.', 'verifikator', skpdIds[0]], ['pimpinan', 'Dr. H. Ahmad Fauzi, S.E., M.Si.', 'pimpinan', skpdIds[0]],
+    ['bendahara.disdik', 'Rina Kartika, S.Ak.', 'bendahara', skpdIds[1]], ['bendahara.dinkes', 'Agus Prasetyo, A.Md.', 'bendahara', skpdIds[2]],
+    ['bendahara.pupr', 'Dewi Lestari, S.E.', 'bendahara', skpdIds[3]],
+  ];
+  const userIds = {};
+  for (const [u, n, r, s] of users) {
+    userIds[u] = (await pool.query(`INSERT INTO users (username, full_name, password_hash, role, skpd_id) VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (username) DO UPDATE SET full_name = EXCLUDED.full_name, role = EXCLUDED.role, skpd_id = EXCLUDED.skpd_id RETURNING id`, [u, n, pw, r, s])).rows[0].id;
+  }
+
+  let samplePegawai = [];
+  const bankRows = [];
+  for (const [si, s] of SKPD.entries()) {
+    const skpd = skpdIds[si];
+    const user = { id: userIds[['bendahara', 'bendahara.disdik', 'bendahara.dinkes', 'bendahara.pupr'][si]], full_name: s.bendahara_nama };
+    // Pegawai
+    const peg = Array.from({ length: Math.round(12 * s.skala) }, (_, i) => {
+      const golongan = pick(GOL); const g = golongan.split('/')[0];
+      return { nip: `19${between(70, 95)}${String(between(1, 12)).padStart(2, '0')}${String(between(1, 28)).padStart(2, '0')}20${between(10, 22)}0${between(1, 2)}${String(1000 + si * 100 + i)}`,
+        nama: `${NAMA[(i + si * 5) % NAMA.length]}${i >= NAMA.length ? ' II' : ''}`, npwp: `0${between(1e13, 9e13)}`, golongan,
+        jabatan: pick(['Analis Keuangan', 'Pengelola Anggaran', 'Bendahara Pengeluaran Pembantu', 'Penata Laporan Keuangan', 'Pranata Komputer', 'Kepala Sub Bagian']),
+        status_ptkp: pick(PTKP), gaji: round(between(...GAJI_GOL[g]), 100) };
+    });
+    for (const p of peg) await pool.query('INSERT INTO pegawai (skpd_id, nip, nama, npwp, status_ptkp, golongan, jabatan, jenis) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [skpd, p.nip, p.nama, p.npwp, p.status_ptkp, p.golongan, p.jabatan, 'pns']);
+    if (si === 0) samplePegawai = peg;
+
+    const belanjaPerRek = {};
+    const UP = round(500_000_000 * s.skala, 1_000_000);
+    await tx(async (c) => {
+      await insertEntries(c, user, skpd, [{ tanggal: ymd(TAHUN, 1, 2), no_bukti: `SP2D-UP-001/${s.kode.slice(0, 4)}`, jenis: 'SP2D_UP', kode_rekening: '0.0.00.00.00.0001', uraian: `Penerimaan SP2D Uang Persediaan (UP) TA ${TAHUN}`, penerimaan: UP }]);
+    });
+    let spjSejakGu = 0; let gu = 0; let nb = 0;
+    for (let m = 1; m <= lastMonth; m++) {
+      const maxDay = m === lastMonth ? lastDay : new Date(TAHUN, m, 0).getDate();
+      const events = [];
+      // Gaji LS (tanggal 1)
+      events.push({ d: 1, kind: 'gaji' });
+      // Belanja GU
+      const n = Math.round(between(14, 24) * s.skala);
+      for (let i = 0; i < n; i++) events.push({ d: between(2, Math.max(2, maxDay)), kind: 'belanja' });
+      if (maxDay >= 3) events.push({ d: Math.min(3, maxDay), kind: 'tunai' });
+      if (m > 1 && maxDay >= 10) events.push({ d: 10, kind: 'setor' });
+      if (rnd() < 0.15 * s.skala && m >= 4) events.push({ d: between(5, Math.max(5, maxDay)), kind: 'modal' });
+      events.sort((a, b) => a.d - b.d);
+      for (const ev of events) {
+        if (ev.d > maxDay) continue;
+        const tanggal = ymd(TAHUN, m, ev.d);
+        await tx(async (c) => {
+          if (ev.kind === 'gaji') {
+            const bruto = peg.reduce((a, p) => a + p.gaji, 0);
+            await insertEntries(c, user, skpd, [
+              { tanggal, no_bukti: `SP2D-LS-GAJI-${String(m).padStart(2, '0')}`, jenis: 'SP2D_LS', kode_rekening: '5.1.01.01.01.0001', uraian: `Penerimaan SP2D LS Gaji dan Tunjangan PNS bulan ${m}/${TAHUN}`, penerimaan: bruto },
+              { tanggal, no_bukti: `SP2D-LS-GAJI-${String(m).padStart(2, '0')}`, jenis: 'BELANJA', kode_rekening: '5.1.01.01.01.0001', uraian: `Pembayaran Gaji dan Tunjangan PNS bulan ${m}/${TAHUN} (${peg.length} pegawai)`, pengeluaran: bruto },
+            ]);
+            belanjaPerRek['5.1.01.01.01.0001'] = (belanjaPerRek['5.1.01.01.01.0001'] || 0) + bruto;
+            await insertPajak(c, user, skpd, peg.map((p) => {
+              const h = pph21Bulanan({ bruto: p.gaji, status: p.status_ptkp });
+              return { tahun: TAHUN, masa: m, jenis_pajak: 'PPH21', kode_objek: '21-100-01', penerima_nama: p.nama, penerima_npwp: p.npwp, status_ptkp: p.status_ptkp, dpp: p.gaji, tarif: h.tarif, nominal: h.pph, ditanggung_pemerintah: true, detail: { bruto: p.gaji, jabatan: p.jabatan, kategori: h.kategori } };
+            }).filter((x) => x.nominal > 0));
+          } else if (ev.kind === 'tunai') {
+            const v = round(between(15, 35) * 1_000_000 * s.skala, 1_000_000);
+            await insertEntries(c, user, skpd, [
+              { tanggal, no_bukti: `CEK-${String(m).padStart(2, '0')}01`, jenis: 'PELIMPAHAN', uraian: 'Penarikan tunai dari rekening bendahara (cek)', pengeluaran: v, metode: 'bank' },
+              { tanggal, no_bukti: `CEK-${String(m).padStart(2, '0')}01`, jenis: 'PELIMPAHAN', uraian: 'Penerimaan kas tunai dari penarikan cek', penerimaan: v, metode: 'tunai' },
+            ]);
+            if (m === 9 && si === 0) bankRows.push({ tanggal, ket: `TARIK TUNAI CEK-${String(m).padStart(2, '0')}01`, debet: v, kredit: 0 });
+          } else if (ev.kind === 'setor') {
+            const { rows } = await c.query(`SELECT id FROM pajak WHERE skpd_id = $1 AND tahun = $2 AND masa = $3 AND status = 'dipungut'`, [skpd, TAHUN, m - 1]);
+            if (rows.length) {
+              const res = await setorPajak(c, user, rows.map((r) => r.id), { ntpn: ntpn(), id_billing: `0${between(1e13, 9e13)}`, tanggal_setor: tanggal });
+              if (m === 9 && si === 0) for (const e of res.saved) bankRows.push({ tanggal, ket: `MPN ${e.no_bukti}`, debet: Number(e.pengeluaran), kredit: 0 });
+              if (m - 1 <= lastMonth - 3) await c.query(`UPDATE pajak SET status = 'dilaporkan', no_bukti_potong = 'BP-' || id WHERE id = ANY($1)`, [res.rows.map((r) => r.id)]);
+            }
+          } else {
+            const rek = ev.kind === 'modal' ? pick(REKENING.slice(11)) : pick(REKENING.slice(2, 11));
+            const nilai = round(between(...rek[3]) * (ev.kind === 'modal' ? 1 : s.skala));
+            const tunai = nilai <= 2_000_000 && rnd() < 0.6;
+            const rekanan = rek[2] && rek[2] !== 'honor' ? pick(rekananIds) : null;
+            nb++;
+            const b = { tanggal, no_bukti: `BKT-${String(m).padStart(2, '0')}-${String(nb).padStart(4, '0')}`, jenis: 'BELANJA', kode_rekening: rek[0], uraian: `${rek[1]}${rekanan ? '' : ' - kegiatan bulan ' + m}`, pengeluaran: nilai, metode: tunai ? 'tunai' : 'bank', rekanan_id: rekanan };
+            if (rek[2] === 'honor') {
+              const asn = rnd() < 0.6;
+              const nama = pick(NAMA);
+              const h = asn ? pph21HonorASN({ bruto: nilai, golongan: pick(['III', 'IV', 'II']) }) : pph21BukanPegawai({ bruto: nilai });
+              b.uraian = `Honorarium narasumber a.n. ${nama}`;
+              if (h.pph > 0) b.pajak = [{ jenis_pajak: 'PPH21', kode_objek: asn ? '21-402-01' : '21-100-08', penerima_nama: nama, penerima_nik: String(3300000000000000 + between(1e8, 9e8)), status_ptkp: 'TK/0', dpp: asn ? nilai : h.dpp, bruto: nilai, tarif: h.tarif, nominal: h.pph }];
+            } else if (rek[2]) {
+              const p = potonganBelanja({ nilai, termasukPPN: true, jenis: rek[2] });
+              b.pajak = p.potongan.map((x) => ({ ...x }));
+            }
+            await catatTransaksi(c, user, skpd, b);
+            belanjaPerRek[rek[0]] = (belanjaPerRek[rek[0]] || 0) + nilai;
+            spjSejakGu += nilai;
+            if (b.metode === 'bank' && m === 9 && si === 0) bankRows.push({ tanggal, ket: `TRF ${b.no_bukti} ${rek[1].slice(0, 30)}`, debet: nilai - (b.pajak || []).reduce((a, x) => a + x.nominal, 0), kredit: 0 });
+            // SP2D GU bila SPJ > 60% UP
+            if (spjSejakGu > UP * 0.6) {
+              gu++;
+              const t2 = ymd(TAHUN, m, Math.min(maxDay, ev.d + 2));
+              await insertEntries(c, user, skpd, [{ tanggal: t2, no_bukti: `SP2D-GU-${String(gu).padStart(3, '0')}`, jenis: 'SP2D_GU', kode_rekening: '0.0.00.00.00.0001', uraian: `Penerimaan SP2D Ganti Uang (GU) ke-${gu}`, penerimaan: spjSejakGu }]);
+              if (m === 9 && si === 0) bankRows.push({ tanggal: t2, ket: `SP2D GU ${gu} KASDA`, debet: 0, kredit: spjSejakGu });
+              spjSejakGu = 0;
+            }
+          }
+        });
+      }
+      // Penutupan kas akhir bulan
+      if (m < lastMonth) {
+        await tx(async (c) => {
+          const end = ymd(TAHUN, m, new Date(TAHUN, m, 0).getDate());
+          const { rows: [r] } = await c.query(`SELECT COALESCE(SUM(penerimaan - pengeluaran),0) AS saldo, COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode='bank'),0) AS bank, COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode='tunai'),0) AS tunai FROM bku_entries WHERE skpd_id = $1 AND tanggal <= $2`, [skpd, end]);
+          await c.query('INSERT INTO penutupan_kas (skpd_id, tanggal, saldo_bku, saldo_bank, kas_tunai, denominasi, selisih, keterangan, created_by) VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8)',
+            [skpd, end, r.saldo, r.bank, r.tunai, { 100000: Math.floor(Number(r.tunai) / 100000) }, 'Penutupan kas akhir bulan', user.id]);
+        });
+      }
+    }
+    // Anggaran: pagu = proyeksi setahun x 1,15-1,4
+    for (const [kode, total] of Object.entries(belanjaPerRek)) {
+      const pagu = round((total / lastMonth) * 12 * (1.15 + rnd() * 0.25), 1_000_000);
+      await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, TAHUN, kode, pagu]);
+    }
+    for (const [kode, , jenis] of REKENING) if (jenis && !belanjaPerRek[kode]) await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, TAHUN, kode, round(between(50, 300) * 1_000_000 * s.skala, 1_000_000)]);
+    // Verifikasi: semua sampai 2 bulan lalu
+    await pool.query(`INSERT INTO bku_verifications (entry_id, status, catatan, verified_by)
+      SELECT id, CASE WHEN random() < 0.01 THEN 'ditolak' ELSE 'diverifikasi' END, NULL, $3 FROM bku_entries WHERE skpd_id = $1 AND tanggal < $2`,
+    [skpd, ymd(TAHUN, Math.max(1, lastMonth - 1), 1), userIds.verifikator]);
+    await pool.query(`UPDATE bku_verifications SET catatan = 'Bukti pendukung belum lengkap' WHERE status = 'ditolak' AND catatan IS NULL`);
+    const { rows: [cnt] } = await pool.query('SELECT COUNT(*)::int AS n FROM bku_entries WHERE skpd_id = $1', [skpd]);
+    console.log(`[seed] ${s.nama}: ${cnt.n} entri BKU`);
+  }
+  // Mutasi bank contoh: salin transaksi bank September + 2 baris yang tidak ada di BKU (biaya admin & bunga)
+  bankRows.push({ tanggal: '2026-09-30', ket: 'BIAYA ADMINISTRASI', debet: 15000, kredit: 0 }, { tanggal: '2026-09-30', ket: 'BUNGA JASA GIRO', debet: 0, kredit: 48250.37 });
+  if (bankRows.length > 4) bankRows.splice(3, 1); // satu transaksi BKU sengaja tidak ada di bank
+  bankRows.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+  await pool.query(`INSERT INTO daily_summary (skpd_id, tanggal, penerimaan, pengeluaran, jumlah_transaksi)
+    SELECT skpd_id, tanggal, SUM(penerimaan), SUM(pengeluaran), COUNT(*) FROM bku_entries GROUP BY 1,2
+    ON CONFLICT (skpd_id, tanggal) DO UPDATE SET penerimaan = EXCLUDED.penerimaan, pengeluaran = EXCLUDED.pengeluaran, jumlah_transaksi = EXCLUDED.jumlah_transaksi`);
+  await pool.query('UPDATE outbox SET published_at = now() WHERE published_at IS NULL');
+  await writeSamples(samplePegawai, bankRows).catch((e) => console.warn(`[seed] file contoh tidak ditulis (${e.code || e.message}); data database tetap lengkap`));
+  console.log('[seed] selesai. Login: admin / bendahara / verifikator / pimpinan, password: bku12345');
+}
+
+main().then(() => pool.end()).catch((e) => { console.error(e); process.exit(1); });

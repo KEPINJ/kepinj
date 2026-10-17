@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-feature-settings: 'cv11', 'ss01'; }
+  .num { font-variant-numeric: tabular-nums; }
+}
+@layer components {
+  .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-100 disabled:text-slate-500; }
+  .label { @apply mb-1 block text-xs font-medium text-slate-600; }
+  .card { @apply min-w-0 rounded-xl border border-slate-200 bg-white shadow-card; }
+  .th { @apply whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500; }
+  .td { @apply border-b border-slate-100 px-3 py-2 align-top text-sm; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; }
+  .print-area { box-shadow: none !important; border: none !important; padding: 0 !important; }
+  @page { size: A4 landscape; margin: 12mm; }
+}
+.page-portrait { }
+@media print { .page-portrait { } }
