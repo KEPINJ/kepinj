@@ -68,7 +68,11 @@ Jadwalkan perintah backup di atas dengan `cron` setiap malam dan simpan salinann
 
 Render tidak menyediakan Kafka. Aplikasi otomatis memakai bus event internal, jadi pembaruan realtime tetap berjalan untuk satu instance.
 
-### Pilihan C: Railway atau penyedia Docker lain
+### Pilihan C: Hosting cPanel (Zenhosta, dll.)
+
+Untuk paket hosting cPanel yang punya menu **Setup Node.js App**, ikuti [HOSTING-CPANEL.md](HOSTING-CPANEL.md). Paket siap unggah (`bku-bkad-cpanel.zip`) dibuat otomatis di halaman Releases setiap ada perubahan di `main`.
+
+### Pilihan D: Railway atau penyedia Docker lain
 
 Buat layanan dari repo (Dockerfile terdeteksi otomatis), tambahkan PostgreSQL, lalu isi variabel:
 

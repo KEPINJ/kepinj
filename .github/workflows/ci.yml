@@ -22,5 +22,7 @@ jobs:
         working-directory: web
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Paket cPanel
+        run: bash scripts/build-cpanel.sh
       - name: Build image Docker
         run: docker build -t bku-bkad .

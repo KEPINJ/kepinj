@@ -50,7 +50,8 @@ export async function buildApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Jalankan server (dipakai `node src/index.js` dan titik masuk cPanel `app.cjs`). */
+export async function start() {
   if (config.isProd && (config.jwtSecret.length < 32 || config.jwtSecret.startsWith('ganti'))) {
     console.error('JWT_SECRET wajib diisi string acak minimal 32 karakter di produksi');
     process.exit(1);
@@ -59,8 +60,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildApp();
   await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
-  await app.listen({ port: config.port, host: config.host });
+  if (typeof globalThis.PhusionPassenger !== 'undefined') {
+    // Hosting cPanel (Phusion Passenger): port & socket diatur oleh Passenger
+    await app.ready();
+    app.server.listen('passenger');
+  } else {
+    await app.listen({ port: config.port, host: config.host });
+  }
+  let closing = false;
   const shutdown = async () => {
+    if (closing) return;
+    closing = true;
     await app.close();
     await stopEvents();
     await pool.end();
@@ -69,3 +79,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) await start();

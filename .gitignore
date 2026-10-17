@@ -3,3 +3,5 @@ web/dist/
 .env
 *.log
 web/public/demo/
+dist-cpanel/
+bku-bkad-cpanel.zip

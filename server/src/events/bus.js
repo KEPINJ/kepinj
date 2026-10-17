@@ -99,15 +99,20 @@ export async function startEventPipeline(logger) {
   }
   if (state.mode === 'memory') { state.connected = true; log.info('Event stream: bus internal (tanpa Kafka)'); }
 
-  const listener = new pg.Client({ connectionString: config.databaseUrl });
-  await listener.connect();
-  listener.on('notification', () => drain());
-  await listener.query('LISTEN outbox');
-  const timer = setInterval(drain, 2000);
+  // PGlite (database dalam proses) tidak punya koneksi LISTEN terpisah: cukup polling outbox
+  const embedded = config.databaseUrl.startsWith('pglite:');
+  let listener = null;
+  if (!embedded) {
+    listener = new pg.Client({ connectionString: config.databaseUrl });
+    await listener.connect();
+    listener.on('notification', () => drain());
+    await listener.query('LISTEN outbox');
+  }
+  const timer = setInterval(drain, embedded ? 1000 : 2000);
   drain();
   return async () => {
     clearInterval(timer);
-    await listener.end().catch(() => {});
+    await listener?.end().catch(() => {});
     await stopKafka();
   };
 }

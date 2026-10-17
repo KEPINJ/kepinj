@@ -1,14 +1,41 @@
 // Adaptor PGlite (PostgreSQL WASM) dengan antarmuka yang sama seperti modul `pg`.
-// Dipakai untuk mode demo di browser (GitHub Pages) dan untuk membuat snapshot
-// database demo saat build. Produksi tetap memakai PostgreSQL sungguhan.
+// Dipakai untuk mode demo di browser (GitHub Pages), snapshot demo saat build, dan
+// hosting tanpa server PostgreSQL (mis. shared hosting cPanel): DATABASE_URL=pglite:/path/folder.
 const DATE = 1082;
 const INT8 = 20;
 const NUMERIC = 1700;
 
 let opener = async (dataDir, opts) => {
   const { PGlite } = await import('@electric-sql/pglite');
-  return new PGlite(dataDir, opts);
+  if (!dataDir.includes('://')) await lockDataDir(dataDir);
+  return PGlite.create(dataDir, opts);
 };
+
+/**
+ * PGlite hanya boleh dibuka satu proses. Saat hosting me-restart aplikasi, proses baru
+ * menunggu proses lama selesai menutup database (maks. 30 detik).
+ */
+async function lockDataDir(dataDir) {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const lock = `${path.resolve(dataDir)}.lock`;
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  for (let i = 0; i < 60; i++) {
+    try {
+      fs.writeFileSync(lock, String(process.pid), { flag: 'wx' });
+      process.on('exit', () => { try { fs.unlinkSync(lock); } catch { /* sudah terhapus */ } });
+      return;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      const pid = Number(fs.readFileSync(lock, 'utf8'));
+      if (!pid || pid === process.pid || !alive(pid)) { fs.rmSync(lock, { force: true }); continue; }
+      await new Promise((r) => { setTimeout(r, 500); });
+    }
+  }
+  throw new Error(`Database ${dataDir} sedang dipakai proses lain (lihat ${lock})`);
+}
+
 /** Ganti cara membuka database (mis. memuat snapshot di browser). */
 export function setOpener(fn) { opener = fn; }
 

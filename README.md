@@ -68,7 +68,8 @@ Jalankan sendiri: `DATABASE_URL=postgres://…/bku_uji node server/scripts/loadt
 ## Menjalankan
 
 Panduan memasang di server (VPS + HTTPS, Render, Railway) dan mengaktifkan demo GitHub Pages ada di
-[docs/DEPLOY.md](docs/DEPLOY.md). Pada instalasi baru tanpa data contoh, akun `admin` dibuat otomatis
+[docs/DEPLOY.md](docs/DEPLOY.md). Untuk hosting cPanel seperti Zenhosta, lihat [docs/HOSTING-CPANEL.md](docs/HOSTING-CPANEL.md).
+Bila PostgreSQL tidak tersedia, aplikasi dapat memakai PostgreSQL bawaan (PGlite) dengan `DATABASE_URL=pglite:/path/folder-data`. Pada instalasi baru tanpa data contoh, akun `admin` dibuat otomatis
 dengan password dari `ADMIN_PASSWORD` (atau password acak yang dicetak di log).
 
 ### Cara cepat (Docker)
@@ -149,5 +150,6 @@ web/             React + Vite + Tailwind (15 halaman)
   src/demo/      Mode demo: backend & PostgreSQL (PGlite) berjalan di browser untuk GitHub Pages
 deploy/          Caddyfile (HTTPS otomatis)
 samples/         Contoh daftar gaji, honor, transaksi belanja, mutasi bank
-docs/            DEPLOY.md (panduan online-kan) dan tangkapan layar
+docs/            DEPLOY.md & HOSTING-CPANEL.md (panduan online-kan) dan tangkapan layar
+scripts/         build-cpanel.sh (paket ZIP untuk hosting cPanel)
 ```
