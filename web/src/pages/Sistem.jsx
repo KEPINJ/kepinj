@@ -32,7 +32,7 @@ export default function Sistem() {
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
                 <Server className="h-5 w-5 text-brand-700" />
-                <div className="flex-1"><p className="font-medium">{s.event.mode === 'kafka' ? 'Apache Kafka' : 'Bus internal (tanpa Kafka)'}</p><p className="text-xs text-slate-500">{s.event.topic ? `topic ${s.event.topic}` : 'set KAFKA_BROKERS untuk mengaktifkan Kafka'}</p></div>
+                <div className="flex-1"><p className="font-medium">{s.event.mode === 'kafka' ? 'Apache Kafka' : s.event.mode === 'demo' ? 'Bus di browser (mode demo)' : 'Bus internal (tanpa Kafka)'}</p><p className="text-xs text-slate-500">{s.event.topic ? `topic ${s.event.topic}` : s.event.mode === 'demo' ? 'versi server memakai Apache Kafka' : 'set KAFKA_BROKERS untuk mengaktifkan Kafka'}</p></div>
                 <Badge color={s.event.connected ? 'green' : 'red'}>{s.event.connected ? 'aktif' : 'mati'}</Badge>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">

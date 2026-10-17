@@ -1,5 +1,7 @@
 # Jalankan seluruh stack:  docker compose up -d --build
-# Isi data contoh:        docker compose exec app node src/db/seed.js
+# Dengan HTTPS + domain:   DOMAIN=bku.contoh.go.id docker compose --profile https up -d --build
+# Isi data contoh:        docker compose exec app node src/db/seed.js   (jangan di server produksi)
+# Panduan lengkap:        docs/DEPLOY.md
 services:
   postgres:
     image: postgres:16-alpine
@@ -44,12 +46,27 @@ services:
       DATABASE_URL: postgres://bku:${POSTGRES_PASSWORD:-bku}@postgres:5432/bku
       KAFKA_BROKERS: kafka:9092
       JWT_SECRET: ${JWT_SECRET:-ganti-dengan-rahasia-panjang}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       PORT: 8080
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["https"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on: [app]
     restart: unless-stopped
 
   kafka-ui:
@@ -65,3 +82,4 @@ services:
 volumes:
   pgdata:
   kafkadata:
+  caddydata:

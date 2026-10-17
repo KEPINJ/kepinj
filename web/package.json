@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:demo": "node ../server/scripts/demo-snapshot.js public/demo/bku-demo.tar.gz && vite build --mode demo && node scripts/demo-post.js"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@noble/hashes": "^2.4.0",
+    "buffer": "^6.0.3",
     "lucide-react": "^1.59.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

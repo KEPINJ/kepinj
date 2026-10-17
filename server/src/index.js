@@ -5,7 +5,9 @@ import fstatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { pool } from './db.js';
+import { errorResponse } from './lib/http.js';
 import { migrate } from './db/migrate.js';
+import { ensureAdmin } from './db/bootstrap.js';
 import { authPlugin, authRoutes } from './auth.js';
 import { startEventPipeline } from './events/bus.js';
 import bkuRoutes from './routes/bku.js';
@@ -33,12 +35,9 @@ export async function buildApp() {
   });
 
   app.setErrorHandler((err, req, reply) => {
-    const status = err.statusCode || (err.code === 'P0001' ? 409 : err.code === '23505' ? 409 : err.code === '23503' ? 400 : 500);
+    const { status, body } = errorResponse(err);
     if (status >= 500) req.log.error(err);
-    const message = err.code === '23505' ? 'Data dengan kunci yang sama sudah ada'
-      : err.code === '23503' ? 'Referensi data tidak ditemukan (periksa kode/ID yang dipilih)'
-      : status >= 500 ? 'Terjadi kesalahan pada server' : err.message;
-    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log });
+    reply.code(status).send(body);
   });
 
   authRoutes(app);
@@ -58,6 +57,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   await migrate();
   const app = await buildApp();
+  await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
   await app.listen({ port: config.port, host: config.host });
   const shutdown = async () => {

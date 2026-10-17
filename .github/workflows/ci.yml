@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm test
+        working-directory: server
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Build demo
+        run: npm run build:demo
+        working-directory: web
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Build image Docker
+        run: docker build -t bku-bkad .

@@ -26,5 +26,8 @@
     "jsonwebtoken": "^9.0.3",
     "kafkajs": "^2.2.4",
     "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
   }
 }
