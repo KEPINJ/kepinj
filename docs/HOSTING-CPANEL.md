@@ -15,7 +15,8 @@ Di hosting cPanel, Apache Kafka tidak tersedia. Aplikasi otomatis memakai bus ev
 1. Login cPanel → **File Manager**.
 2. Masuk ke folder utama akun (`/home/USERNAME`, bukan `public_html`).
 3. Klik **Upload** dan unggah `bku-bkad-cpanel.zip`.
-4. Klik kanan file zip → **Extract**. Hasilnya folder `bku` yang berisi `server`, `shared`, `web`, dan `samples`.
+4. Klik kanan file zip → **Extract** ke `/home/USERNAME`. Hasilnya folder `bku` yang berisi `server`, `shared`, `web`, dan `samples`.
+5. Pastikan file `/home/USERNAME/bku/server/package.json` dan `/home/USERNAME/bku/server/app.cjs` ada. Kalau ZIP diekstrak di dalam folder `bku` yang sudah ada, hasilnya menjadi bertingkat (`bku/bku/server`) dan aplikasi tidak akan jalan.
 
 ## Langkah 2: Siapkan database
 
@@ -123,6 +124,7 @@ Lakukan backup rutin, minimal setiap minggu dan sebelum memperbarui aplikasi. Si
 
 | Gejala | Penyebab dan solusi |
 |---|---|
+| Log berisi `Cannot find module '/home/USERNAME/bku/server//app.cjs'` | File aplikasi tidak ada di `bku/server`. Periksa apakah ZIP terekstrak bertingkat (`bku/bku/server`) atau di folder lain, lalu pindahkan folder `bku` hasil ekstrak ke `/home/USERNAME`. |
 | Halaman "503" atau "Incomplete response" | Lihat log di `bku/server/stderr.log` (File Manager). Pastikan **Run NPM Install** sudah selesai dan semua variabel lingkungan terisi. |
 | Log berisi `JWT_SECRET wajib diisi` | `JWT_SECRET` kosong atau kurang dari 32 karakter. |
 | Log berisi `sedang dipakai proses lain` | Aplikasi lama belum berhenti (cara B). Tunggu 30 detik lalu klik **Restart**. |

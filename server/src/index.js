@@ -60,10 +60,12 @@ export async function start() {
   const app = await buildApp();
   await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
-  if (typeof globalThis.PhusionPassenger !== 'undefined') {
-    // Hosting cPanel (Phusion Passenger): port & socket diatur oleh Passenger
+  if (typeof globalThis.PhusionPassenger !== 'undefined' || typeof globalThis.LsNode !== 'undefined') {
+    // Hosting cPanel (Phusion Passenger / LiteSpeed lsnode): socket diatur oleh web server,
+    // yang mengganti http.Server#listen. Fastify.listen tidak dipakai karena alamat
+    // server bukan host:port biasa.
     await app.ready();
-    app.server.listen('passenger');
+    app.server.listen(typeof globalThis.PhusionPassenger !== 'undefined' ? 'passenger' : config.port);
   } else {
     await app.listen({ port: config.port, host: config.host });
   }
