@@ -1,0 +1,37 @@
+# Paket hosting cPanel: setiap perubahan di main menghasilkan rilis "cpanel" berisi bku-bkad-cpanel.zip
+name: Paket cPanel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cpanel-release
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm test
+        working-directory: server
+      - run: npm ci
+        working-directory: web
+      - run: bash scripts/build-cpanel.sh
+      - name: Terbitkan rilis "cpanel"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete cpanel --yes --cleanup-tag || true
+          gh release create cpanel bku-bkad-cpanel.zip \
+            --target "$GITHUB_SHA" \
+            --title "Paket hosting cPanel (terbaru)" \
+            --notes "Paket siap unggah untuk hosting cPanel (Setup Node.js App). Panduan: docs/HOSTING-CPANEL.md. Dibuat dari commit $GITHUB_SHA."

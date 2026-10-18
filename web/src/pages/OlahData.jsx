@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, FileSpreadsheet, Trash2, Plus, Play, Download, Save, BookOpen, Receipt, ArrowUp, ArrowDown, X, Sparkles, HelpCircle, Table2, Loader2 } from 'lucide-react';
 import { runPipeline, STEP_TYPES, AGG_LABELS } from '@shared/pipeline.js';
 import { FUNCTION_NAMES, toNum } from '@shared/expr.js';
-import { api, download } from '../lib/api.js';
+import { api, download, DEMO } from '../lib/api.js';
 import { useApp } from '../lib/ctx.jsx';
 import { Alert, Badge, Button, Card, Field, Input, Modal, PageHeader, Select, useLoad, useToast, Empty, cx, Loading } from '../components/ui.jsx';
 import { BULAN, rp, num, waktu, today } from '../lib/format.js';
@@ -76,6 +76,13 @@ function StepEditor({ step, cols, onChange }) {
   }
 }
 
+const SAMPLES = [
+  ['contoh_daftar_gaji_oktober.xlsx', 'Daftar gaji pegawai (hitung PPh 21 TER)'],
+  ['contoh_honor_narasumber.xlsx', 'Honor narasumber ASN/non ASN'],
+  ['contoh_transaksi_belanja.xlsx', 'Transaksi belanja untuk diimpor ke BKU'],
+  ['contoh_mutasi_bank_september.csv', 'Mutasi rekening koran (rekonsiliasi bank)'],
+];
+
 export default function OlahData() {
   const { skpdId, tahun, can } = useApp();
   const toast = useToast();
@@ -143,6 +150,16 @@ export default function OlahData() {
             <p className="text-xs text-slate-500">.xlsx atau .csv · baris judul terdeteksi otomatis</p>
             <input ref={fileRef} type="file" accept=".xlsx,.csv,.txt" className="hidden" onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} />
           </div>
+          {DEMO && (
+            <div className="card p-3 text-xs text-slate-600">
+              <p className="font-medium text-slate-700">File contoh untuk dicoba</p>
+              <ul className="mt-1.5 space-y-1">
+                {SAMPLES.map(([f, label]) => (
+                  <li key={f}><a className="inline-flex items-center gap-1.5 text-brand-700 hover:underline" href={`${import.meta.env.BASE_URL}demo/contoh/${f}`} download><Download className="h-3.5 w-3.5" />{label}</a></li>
+                ))}
+              </ul>
+            </div>
+          )}
           <Card title="Dataset" bodyClass="max-h-72 overflow-y-auto p-1.5">
             {!datasets.data?.rows.length ? <p className="p-3 text-xs text-slate-500">Belum ada file diunggah.</p> : datasets.data.rows.map((d) => (
               <div key={d.id} className={cx('group flex cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2', d.id === dsId ? 'bg-brand-50' : 'hover:bg-slate-50')} onClick={() => { setDsId(d.id); setSteps([]); }}>

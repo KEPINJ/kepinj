@@ -5,7 +5,9 @@ import fstatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { pool } from './db.js';
+import { errorResponse } from './lib/http.js';
 import { migrate } from './db/migrate.js';
+import { ensureAdmin } from './db/bootstrap.js';
 import { authPlugin, authRoutes } from './auth.js';
 import { startEventPipeline } from './events/bus.js';
 import bkuRoutes from './routes/bku.js';
@@ -33,12 +35,9 @@ export async function buildApp() {
   });
 
   app.setErrorHandler((err, req, reply) => {
-    const status = err.statusCode || (err.code === 'P0001' ? 409 : err.code === '23505' ? 409 : err.code === '23503' ? 400 : 500);
+    const { status, body } = errorResponse(err);
     if (status >= 500) req.log.error(err);
-    const message = err.code === '23505' ? 'Data dengan kunci yang sama sudah ada'
-      : err.code === '23503' ? 'Referensi data tidak ditemukan (periksa kode/ID yang dipilih)'
-      : status >= 500 ? 'Terjadi kesalahan pada server' : err.message;
-    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log });
+    reply.code(status).send(body);
   });
 
   authRoutes(app);
@@ -51,16 +50,29 @@ export async function buildApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Jalankan server (dipakai `node src/index.js` dan titik masuk cPanel `app.cjs`). */
+export async function start() {
   if (config.isProd && (config.jwtSecret.length < 32 || config.jwtSecret.startsWith('ganti'))) {
     console.error('JWT_SECRET wajib diisi string acak minimal 32 karakter di produksi');
     process.exit(1);
   }
   await migrate();
   const app = await buildApp();
+  await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
-  await app.listen({ port: config.port, host: config.host });
+  if (typeof globalThis.PhusionPassenger !== 'undefined' || typeof globalThis.LsNode !== 'undefined') {
+    // Hosting cPanel (Phusion Passenger / LiteSpeed lsnode): socket diatur oleh web server,
+    // yang mengganti http.Server#listen. Fastify.listen tidak dipakai karena alamat
+    // server bukan host:port biasa.
+    await app.ready();
+    app.server.listen(typeof globalThis.PhusionPassenger !== 'undefined' ? 'passenger' : config.port);
+  } else {
+    await app.listen({ port: config.port, host: config.host });
+  }
+  let closing = false;
   const shutdown = async () => {
+    if (closing) return;
+    closing = true;
     await app.close();
     await stopEvents();
     await pool.end();
@@ -69,3 +81,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) await start();

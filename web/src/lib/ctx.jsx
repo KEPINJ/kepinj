@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api.js';
+import { api, openEventStream } from './api.js';
 
 const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -40,9 +40,10 @@ export function AppProvider({ children }) {
   // Realtime: Server-Sent Events dari pipeline Kafka
   useEffect(() => {
     if (!user) return undefined;
-    let es; let retry;
-    const connect = () => {
-      es = new EventSource('/api/stream', { withCredentials: true });
+    let es; let retry; let stopped = false;
+    const connect = async () => {
+      es = await openEventStream('/api/stream');
+      if (stopped) { es.close(); return; }
       es.addEventListener('hello', (e) => setLive((l) => ({ ...l, connected: true, mode: JSON.parse(e.data).mode })));
       const onEvt = (e) => {
         const evt = JSON.parse(e.data);
@@ -53,7 +54,7 @@ export function AppProvider({ children }) {
       es.onerror = () => { setLive((l) => ({ ...l, connected: false })); es.close(); retry = setTimeout(connect, 4000); };
     };
     connect();
-    return () => { clearTimeout(retry); es?.close(); };
+    return () => { stopped = true; clearTimeout(retry); es?.close(); };
   }, [user]);
 
   const value = useMemo(() => ({

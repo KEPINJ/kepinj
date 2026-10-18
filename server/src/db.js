@@ -1,5 +1,9 @@
-import pg from 'pg';
+import pgNative from 'pg';
+import pglite from './db/pglite-pg.js';
 import { config } from './config.js';
+
+// DATABASE_URL=pglite:memory menjalankan PostgreSQL WASM di dalam proses (demo & build snapshot)
+const pg = config.databaseUrl.startsWith('pglite:') ? pglite : pgNative;
 
 // DATE dikembalikan sebagai string 'YYYY-MM-DD' (hindari geseran zona waktu),
 // NUMERIC tetap string agar presisi uang terjaga, BIGINT dikonversi ke Number.

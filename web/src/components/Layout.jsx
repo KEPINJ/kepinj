@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, Calculator, FileSpreadsheet, Upload, Landmark, ShieldCheck, Users, Database, Receipt,
-  Menu, X, LogOut, Wallet, BarChart3, Printer, ScrollText, Radio, KeyRound,
+  Menu, X, LogOut, Wallet, BarChart3, Printer, ScrollText, Radio, KeyRound, FlaskConical,
 } from 'lucide-react';
 import { useApp, useLive } from '../lib/ctx.jsx';
 import { cx, useToast, Select } from './ui.jsx';
 import { ROLE, rp } from '../lib/format.js';
 import GantiPassword from './GantiPassword.jsx';
+import { DEMO, resetDemo } from '../lib/api.js';
 
 const NAV = [
   { group: 'Utama', items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
@@ -107,6 +108,14 @@ export default function Layout() {
         </div>
       )}
       <div className="lg:pl-64">
+        {DEMO && (
+          <div className="no-print flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber-50 px-4 py-2 text-xs text-amber-900 sm:px-6">
+            <FlaskConical className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">Mode demo: aplikasi dan database berjalan di browser ini dengan data contoh. Perubahan hanya tersimpan di perangkat Anda.</span>
+            <button type="button" className="font-medium underline underline-offset-2 hover:text-amber-700"
+              onClick={() => { if (window.confirm('Kembalikan semua data demo ke kondisi awal?')) resetDemo(); }}>Reset data demo</button>
+          </div>
+        )}
         <header className="no-print sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/90 px-4 py-2.5 backdrop-blur sm:px-6">
           <button type="button" className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Buka menu"><Menu className="h-5 w-5" /></button>
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -118,7 +127,7 @@ export default function Layout() {
             )}
             <Select className="!w-auto !py-1.5" value={tahun} onChange={(e) => setTahun(e.target.value)} options={years.map((y) => ({ value: y, label: `TA ${y}` }))} />
           </div>
-          <div title={live.connected ? `Terhubung ke event stream (${live.mode === 'kafka' ? 'Apache Kafka' : 'bus internal'})` : 'Realtime terputus, mencoba menyambung ulang…'}
+          <div title={live.connected ? `Terhubung ke event stream (${live.mode === 'kafka' ? 'Apache Kafka' : live.mode === 'demo' ? 'bus di browser' : 'bus internal'})` : 'Realtime terputus, mencoba menyambung ulang…'}
             className={cx('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium', live.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
             <Radio className={cx('h-3.5 w-3.5', live.connected && 'animate-pulse')} />
             {live.connected ? `Realtime${live.mode === 'kafka' ? ' · Kafka' : ''}` : 'Offline'}

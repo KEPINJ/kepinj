@@ -1,0 +1,8 @@
+# HTTPS otomatis (Let's Encrypt) untuk domain di variabel DOMAIN
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:8080 {
+		# Server-Sent Events (realtime) tidak boleh di-buffer
+		flush_interval -1
+	}
+}

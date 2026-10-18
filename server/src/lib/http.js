@@ -5,6 +5,15 @@ export class HttpError extends Error {
     Object.assign(this, extra);
   }
 }
+/** Petakan error (HttpError / kode error PostgreSQL) menjadi status & isi respons API. */
+export function errorResponse(err) {
+  const status = err.statusCode || (err.code === 'P0001' ? 409 : err.code === '23505' ? 409 : err.code === '23503' ? 400 : 500);
+  const error = err.code === '23505' ? 'Data dengan kunci yang sama sudah ada'
+    : err.code === '23503' ? 'Referensi data tidak ditemukan (periksa kode/ID yang dipilih)'
+      : status >= 500 ? 'Terjadi kesalahan pada server' : err.message;
+  return { status, body: { error, masalah: err.masalah, log: err.log } };
+}
+
 export const bad = (msg, extra) => new HttpError(400, msg, extra);
 export const notFound = (msg = 'Data tidak ditemukan') => new HttpError(404, msg);
 export const forbidden = (msg = 'Anda tidak memiliki akses') => new HttpError(403, msg);

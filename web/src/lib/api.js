@@ -6,11 +6,15 @@ export class ApiError extends Error {
   }
 }
 
+export const DEMO = __DEMO__;
+// Mode demo (GitHub Pages): backend berjalan di browser, dimuat hanya pada build demo
+const demo = __DEMO__ ? import('../demo/server.js') : null;
+
 async function request(method, url, body, { raw } = {}) {
   const opts = { method, credentials: 'include', headers: {} };
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
-  const res = await fetch(url, opts);
+  const res = demo ? await (await demo).demoFetch(url, opts) : await fetch(url, opts);
   if (raw && res.ok) return res;
   const isJson = res.headers.get('content-type')?.includes('json');
   const data = isJson ? await res.json() : await res.text();
@@ -52,4 +56,14 @@ export async function download(url, { params, body, fallback = 'unduhan' } = {})
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+/** Sambungan event realtime (SSE); di mode demo memakai event bus di browser. */
+export async function openEventStream(url) {
+  if (demo) return new (await demo).DemoEventSource(url);
+  return new EventSource(url, { withCredentials: true });
+}
+
+export async function resetDemo() {
+  if (demo) await (await demo).resetDemo();
 }

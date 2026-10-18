@@ -5,6 +5,9 @@ Buku Kas Umum, perhitungan pajak otomatis siap **Coretax DJP**, unggah & olah da
 rekonsiliasi bank, realisasi anggaran, dan laporan cetak, dengan pembaruan **realtime**
 dan **integritas data** terjamin.
 
+**Coba demo:** https://kepinj.github.io/kepinj/ (login `admin` / `bku12345`). Demo berjalan sepenuhnya
+di browser dengan data contoh. Untuk dipakai bekerja, pasang di server: lihat [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ## Fitur
@@ -64,6 +67,11 @@ Jalankan sendiri: `DATABASE_URL=postgres://…/bku_uji node server/scripts/loadt
 
 ## Menjalankan
 
+Panduan memasang di server (VPS + HTTPS, Render, Railway) dan mengaktifkan demo GitHub Pages ada di
+[docs/DEPLOY.md](docs/DEPLOY.md). Untuk hosting cPanel seperti Zenhosta, lihat [docs/HOSTING-CPANEL.md](docs/HOSTING-CPANEL.md).
+Bila PostgreSQL tidak tersedia, aplikasi dapat memakai PostgreSQL bawaan (PGlite) dengan `DATABASE_URL=pglite:/path/folder-data`. Pada instalasi baru tanpa data contoh, akun `admin` dibuat otomatis
+dengan password dari `ADMIN_PASSWORD` (atau password acak yang dicetak di log).
+
 ### Cara cepat (Docker)
 
 ```bash
@@ -103,6 +111,17 @@ Password semua akun: `bku12345` — **wajib diganti** sebelum dipakai sungguhan.
 
 File contoh untuk dicoba di menu Olah Data dan Rekonsiliasi ada di folder [`samples/`](samples/).
 
+### Demo di browser (tanpa server)
+
+```bash
+cd server && npm install && cd ../web && npm install
+npm run build:demo     # snapshot data contoh (PGlite) + build mode demo ke web/dist
+npx vite preview --mode demo
+```
+
+Pada mode demo, rute API server yang sama dijalankan di browser dan database memakai PGlite
+(PostgreSQL WebAssembly). Modul khusus Node (driver `pg`, Kafka, JWT) diganti versi browser di `web/src/demo/`.
+
 ### Tes
 
 ```bash
@@ -128,6 +147,9 @@ server/          API Fastify, migrasi SQL, event pipeline Kafka, seeder, tes
   src/lib/       ledger (rantai hash), coretax (XML), excel, transaksi
 shared/          Mesin pajak, evaluator rumus & pengolah data (dipakai server dan browser)
 web/             React + Vite + Tailwind (15 halaman)
+  src/demo/      Mode demo: backend & PostgreSQL (PGlite) berjalan di browser untuk GitHub Pages
+deploy/          Caddyfile (HTTPS otomatis)
 samples/         Contoh daftar gaji, honor, transaksi belanja, mutasi bank
-docs/screenshots Tangkapan layar
+docs/            DEPLOY.md & HOSTING-CPANEL.md (panduan online-kan) dan tangkapan layar
+scripts/         build-cpanel.sh (paket ZIP untuk hosting cPanel)
 ```
