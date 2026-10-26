@@ -50,6 +50,7 @@ async function listEntries(user, q, { all = false } = {}) {
     SELECT b.*, r.nama AS rekening_nama, rk.nama AS rekanan_nama, u.full_name AS dibuat_oleh,
            v.status AS verif_status, v.catatan AS verif_catatan,
            EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = b.id AND k.skpd_id = b.skpd_id AND k.tahun = b.tahun) AS dikoreksi,
+           (SELECT COUNT(*) FROM lampiran l WHERE l.bku_entry_id = b.id)::int AS jumlah_lampiran,
            COUNT(*) OVER () AS total_rows
       FROM base b
       LEFT JOIN rekening r ON r.kode = b.kode_rekening

@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, BookOpen, Calculator, FileSpreadsheet, Upload, Landmark, ShieldCheck, Users, Database, Receipt,
-  Wallet, BarChart3, Printer, ScrollText, Lock, Plus, FileCheck2, BookCopy, ShieldAlert,
+  Wallet, BarChart3, Printer, ScrollText, Lock, Plus, FileCheck2, BookCopy, ShieldAlert, FileStack, HandCoins, Crown,
 } from 'lucide-react';
 
 // Struktur menu tunggal: dipakai sidebar, pencarian cepat (Ctrl+K) dan navigasi bawah di ponsel.
@@ -8,9 +8,12 @@ export const NAV = [
   { group: 'Utama', items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, keywords: 'beranda ringkasan' },
     { to: '/peringatan', label: 'Peringatan Anomali', icon: ShieldAlert, keywords: 'duplikat ganda kas tunai pagu anomali temuan' },
+    { to: '/laporan-pimpinan', label: 'Laporan Pimpinan', icon: Crown, roles: ['admin', 'pimpinan'], keywords: 'peringkat kinerja seluruh skpd serapan kepala daerah' },
   ] },
   { group: 'Kas & BKU', items: [
     { to: '/bku', label: 'Buku Kas Umum', icon: BookOpen, keywords: 'transaksi kas umum belanja penerimaan sp2d' },
+    { to: '/spp', label: 'SPP · SPM · SP2D', icon: FileStack, keywords: 'pengajuan up gu tu ls gaji barang pencairan' },
+    { to: '/panjar', label: 'Panjar Kegiatan', icon: HandCoins, keywords: 'uang muka pptk pelaksana pertanggungjawaban' },
     { to: '/penutupan-kas', label: 'Penutupan Kas', icon: Wallet, keywords: 'hitung fisik uang brankas' },
     { to: '/rekonsiliasi', label: 'Rekonsiliasi Bank', icon: Landmark, keywords: 'rekening koran mutasi bank cocokkan' },
     { to: '/tutup-buku', label: 'Tutup Buku', icon: Lock, keywords: 'kunci bulan periode spj' },
@@ -42,6 +45,8 @@ export const ACTIONS = [
   { to: '/pajak/kalkulator', label: 'Hitung PPh 21 / PPN', icon: Calculator, keywords: 'kalkulator' },
   { to: '/laporan', label: 'Cetak BKU bulanan', icon: Printer, keywords: 'laporan print' },
   { to: '/spj', label: 'Cetak SPJ fungsional bulan ini', icon: FileCheck2, keywords: 'laporan pertanggungjawaban' },
+  { to: '/spp?baru=GU', label: 'Ajukan SPP-GU', icon: FileStack, roles: ['admin', 'bendahara'], keywords: 'ganti uang pengajuan' },
+  { to: '/panjar', label: 'Beri / pertanggungjawabkan panjar', icon: HandCoins, roles: ['admin', 'bendahara'], keywords: 'uang muka' },
 ];
 
 export const allNavItems = (can) => NAV.flatMap((g) => g.items.filter((i) => !i.roles || can(...i.roles)).map((i) => ({ ...i, group: g.group })));

@@ -15,6 +15,7 @@ const EVT_TEXT = {
   'pajak.disetor': (d) => `Pajak ${rp(d.total)} disetor (NTPN ${d.ntpn})`,
   'periode.dikunci': (d) => `${d.user} menutup buku periode ${d.bulan}/${d.tahun}`,
   'periode.dibuka': (d) => `${d.user} membuka kunci periode ${d.bulan}/${d.tahun}`,
+  'spp.updated': (d) => `${d.user}: ${{ spp: 'SPP baru diajukan', spm: 'SPM diterbitkan', sp2d: 'SP2D dicatat dan dibukukan', ditolak: 'pengajuan SPP ditolak' }[d.status] || 'SPP diperbarui'}`,
 };
 
 const THEMES = [

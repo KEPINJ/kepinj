@@ -5,6 +5,7 @@ import { useApp, useLive } from '../lib/ctx.jsx';
 import { Alert, Button, Card, PageHeader, Select, Skeleton, Tabs, useLoad, useToast } from '../components/ui.jsx';
 import { BULAN, money as money2, num, tgl } from '../lib/format.js';
 import { Ttd } from './PenutupanKas.jsx';
+import DocQr from '../components/DocQr.jsx';
 
 const KELAS = [['ls_gaji', 'LS Gaji'], ['ls_barang', 'LS Barang & Jasa'], ['upgu', 'UP/GU/TU']];
 const PAJAK = ['PPN', 'PPh 21', 'PPh 22', 'PPh 23', 'PPh 4 ayat (2)'];
@@ -93,6 +94,7 @@ export default function Spj() {
             </tbody></table>
             <p className="mt-1 italic">Terbilang: {d.terbilang_saldo}</p>
             <div style={{ breakInside: 'avoid' }}><Ttd skpd={d.skpd} tanggal={d.akhir} /></div>
+            <DocQr className="mt-5" jenis="spj" skpdId={skpdId} parameter={{ tahun, bulan, versi }} />
           </div>
         </div>
       )}

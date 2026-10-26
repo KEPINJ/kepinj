@@ -6,6 +6,7 @@ import { useApp } from '../lib/ctx.jsx';
 import { Button, Loading, useLoad } from '../components/ui.jsx';
 import { BULAN, money, tgl } from '../lib/format.js';
 import { Ttd } from './PenutupanKas.jsx';
+import DocQr from '../components/DocQr.jsx';
 
 export default function CetakBku() {
   const { skpdId, tahun } = useApp();
@@ -50,6 +51,7 @@ export default function CetakBku() {
         </table>
         <p className="mt-3">Pada hari ini, tanggal {tgl(data.sampai, { long: true })}, oleh kami didapat dalam kas Rp {money(r.saldo_akhir)} ({data.terbilang_saldo}), terdiri dari saldo bank Rp {money(r.saldo_bank)} dan kas tunai Rp {money(r.saldo_tunai)}.</p>
         <Ttd skpd={s} tanggal={data.sampai} />
+        <DocQr className="mt-6" jenis="bku" skpdId={skpdId} parameter={{ tahun, bulan: bulan || null }} />
       </div>
     </div>
   );

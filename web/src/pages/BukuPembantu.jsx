@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookCopy, Printer, Download, ChevronLeft, Wallet, Landmark, Layers, Coins, Receipt } from 'lucide-react';
+import { BookCopy, Printer, Download, ChevronLeft, Wallet, Landmark, Layers, Coins, Receipt, HandCoins } from 'lucide-react';
 import { api, download } from '../lib/api.js';
 import { useApp, useLive } from '../lib/ctx.jsx';
 import { Alert, Button, Card, PageHeader, Progress, Select, Skeleton, Tabs, useLoad, useToast } from '../components/ui.jsx';
@@ -38,6 +38,7 @@ export default function BukuPembantu() {
       <div className="no-print flex flex-wrap items-center gap-2">
         <Tabs value={jenis} onChange={(v) => { setJenis(v); setKode(''); }} tabs={JENIS} />
         <Link to="/pajak/register" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"><Receipt className="h-4 w-4" />Pajak</Link>
+        <Link to="/panjar" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"><HandCoins className="h-4 w-4" />Panjar</Link>
       </div>
       {error && <Alert tone="error">{error.message}</Alert>}
       {loading && !d ? <Card><div className="space-y-2">{Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-5" />)}</div></Card>

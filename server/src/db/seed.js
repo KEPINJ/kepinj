@@ -100,6 +100,116 @@ async function writeSamples(pegawai, bankRows) {
   console.log(`[seed] file contoh dibuat di ${dir}`);
 }
 
+
+/** PDF satu halaman sederhana (contoh lampiran nota) tanpa pustaka tambahan. */
+function pdfNota(lines) {
+  const esc = (t) => t.replace(/[()\\]/g, (m) => `\\${m}`);
+  const isi = `BT /F1 13 Tf 60 770 Td 20 TL ${lines.map((l) => `(${esc(l)}) '`).join(' ')} ET`;
+  const obj = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${isi.length} >>\nstream\n${isi}\nendstream`];
+  let out = '%PDF-1.4\n'; const off = [];
+  obj.forEach((o, i) => { off.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${obj.length + 1}\n0000000000 65535 f \n${off.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  out += `trailer\n<< /Size ${obj.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+
+/** Data demo fitur lanjutan: riwayat SPP, tutup buku, panjar, transaksi ganda, lampiran. */
+async function seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds }) {
+  const bendahara = ['bendahara', 'bendahara.disdik', 'bendahara.dinkes', 'bendahara.pupr'];
+  const kurangiHari = (d, n) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - n); return x.toISOString().slice(0, 10); };
+  for (const [si, skpd] of skpdIds.entries()) {
+    const s = SKPD[si];
+    const user = { id: userIds[bendahara[si]], full_name: s.bendahara_nama };
+    // Riwayat SPP -> SPM -> SP2D untuk setiap SP2D yang sudah dibukukan
+    const { rows: sp2d } = await pool.query(`SELECT no_bukti, MIN(tanggal) AS tanggal, MIN(jenis) FILTER (WHERE jenis LIKE 'SP2D%') AS jenis, MIN(uraian) FILTER (WHERE jenis LIKE 'SP2D%') AS uraian,
+        SUM(penerimaan) AS nilai, MIN(kode_rekening) AS kode_rekening, array_agg(id ORDER BY no_urut) AS ids
+      FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 AND no_bukti IN (SELECT no_bukti FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 AND jenis IN ('SP2D_UP','SP2D_GU','SP2D_LS'))
+      GROUP BY no_bukti ORDER BY MIN(tanggal)`, [skpd, TAHUN]);
+    const urut = {};
+    const nomor = (jenis) => { urut[jenis] = (urut[jenis] || 0) + 1; return `${String(urut[jenis]).padStart(4, '0')}/SPP-${jenis.replace('_', '-')}/${s.kode.slice(0, 4)}/${TAHUN}`; };
+    for (const r of sp2d) {
+      const jenis = { SP2D_UP: 'UP', SP2D_GU: 'GU', SP2D_LS: 'LS_GAJI' }[r.jenis];
+      const n = nomor(jenis);
+      await pool.query(`INSERT INTO spp (skpd_id, tahun, jenis, nomor_spp, tanggal_spp, uraian, nilai, kode_rekening, status, nomor_spm, tanggal_spm, nomor_sp2d, tanggal_sp2d, bku_entry_ids, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sp2d',$9,$10,$11,$12,$13,$14)`,
+      [skpd, TAHUN, jenis, n, kurangiHari(r.tanggal, 5), r.uraian.replace(/^Penerimaan SP2D /, ''), r.nilai, jenis === 'LS_GAJI' ? r.kode_rekening : null, n.replace('SPP', 'SPM'), kurangiHari(r.tanggal, 2), r.no_bukti, r.tanggal, r.ids, user.id]);
+    }
+    // Tutup buku berurutan (PUPR sengaja tertinggal untuk contoh laporan pimpinan)
+    const sampai = Math.max(0, lastMonth - [3, 2, 3, 5][si]);
+    for (let b = 1; b <= sampai; b++) {
+      const akhir = new Date(Date.UTC(TAHUN, b, 0)).toISOString().slice(0, 10);
+      const { rows: [r] } = await pool.query(`SELECT COALESCE(SUM(penerimaan) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3), 0)::float AS penerimaan,
+          COALESCE(SUM(pengeluaran) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3), 0)::float AS pengeluaran,
+          COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE tanggal <= $4), 0)::float AS saldo_akhir, COUNT(*) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3)::int AS transaksi
+        FROM bku_entries WHERE skpd_id = $1 AND tahun = $2`, [skpd, TAHUN, b, akhir]);
+      const { rows: [last] } = await pool.query('SELECT no_urut, hash FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 AND tanggal <= $3 ORDER BY no_urut DESC LIMIT 1', [skpd, TAHUN, akhir]);
+      await pool.query(`INSERT INTO periode_kunci (skpd_id, tahun, bulan, ringkasan, catatan, dikunci_oleh, dikunci_at) VALUES ($1,$2,$3,$4,'SPJ fungsional telah disahkan',$5,$6)`,
+        [skpd, TAHUN, b, { ...r, no_urut_terakhir: last?.no_urut || 0, hash_terakhir: last?.hash || null }, user.id, new Date(Date.UTC(TAHUN, b, 10, 2)).toISOString()]);
+    }
+  }
+
+  // Contoh khusus BKAD (SKPD pertama): pengajuan yang sedang berjalan, panjar, transaksi ganda, lampiran
+  const skpd = skpdIds[0]; const s = SKPD[0];
+  const user = { id: userIds.bendahara, full_name: s.bendahara_nama };
+  const tgl = (d) => ymd(TAHUN, lastMonth, Math.min(d, lastDay));
+  const rekanan = (await pool.query('SELECT id FROM rekanan ORDER BY id')).rows.map((r) => r.id);
+  const kode4 = s.kode.slice(0, 4);
+  const proses = [
+    ['LS_BARANG', 'spp', 'Pembayaran jasa konsultansi penyusunan kajian optimalisasi aset daerah termin I', 87_500_000, '5.1.02.02.01.0055', rekanan[1], null],
+    ['TU', 'spm', 'Tambahan uang untuk kegiatan rekonsiliasi aset se-kabupaten', 75_000_000, null, null, null],
+    ['LS_BARANG', 'ditolak', 'Pengadaan personal computer untuk bidang anggaran', 142_000_000, '5.2.02.10.01.0002', rekanan[4], 'Dokumen kontrak dan BAST belum dilampirkan'],
+  ];
+  for (const [i, [jenis, status, uraian, nilai, kode, rk, catatan]] of proses.entries()) {
+    const { rows: [n] } = await pool.query('SELECT COUNT(*)::int + 1 AS n FROM spp WHERE skpd_id = $1 AND tahun = $2 AND jenis = $3', [skpd, TAHUN, jenis]);
+    const nomor = `${String(n.n).padStart(4, '0')}/SPP-${jenis.replace('_', '-')}/${kode4}/${TAHUN}`;
+    await pool.query(`INSERT INTO spp (skpd_id, tahun, jenis, nomor_spp, tanggal_spp, uraian, nilai, kode_rekening, rekanan_id, status, nomor_spm, tanggal_spm, catatan, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [skpd, TAHUN, jenis, nomor, tgl(14 + i * 3), uraian, nilai, kode, rk, status, status === 'spm' ? nomor.replace('SPP', 'SPM') : null, status === 'spm' ? tgl(20) : null, catatan, user.id]);
+  }
+
+  const peg = (await pool.query('SELECT id, nama FROM pegawai WHERE skpd_id = $1 ORDER BY id LIMIT 3', [skpd])).rows;
+  const panjar = [
+    [peg[0], tgl(2), 'Rapat koordinasi penyusunan laporan keuangan di kecamatan', '5.1.02.01.01.0052', 6_500_000, tgl(16), 'tunai'],
+    [peg[1], tgl(lastDay - 6), 'Bimbingan teknis aplikasi BKU bagi bendahara pembantu', '5.1.02.02.01.0003', 4_000_000, null, 'tunai'],
+    [peg[2], tgl(5), 'Perjalanan dinas pendampingan inventarisasi aset', '5.1.02.04.01.0001', 8_000_000, null, 'bank'],
+  ];
+  for (const [i, [p, tanggal, kegiatan, kode, nilai, batas, metode]] of panjar.entries()) {
+    const bt = batas || new Date(Date.UTC(TAHUN, lastMonth - 1, Number(tanggal.slice(8)) + 14)).toISOString().slice(0, 10);
+    const { rows: [r] } = await pool.query(`INSERT INTO panjar (skpd_id, tahun, nomor, tanggal, pegawai_id, penerima_nama, kegiatan, kode_rekening, nilai, metode, batas_tanggal, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`, [skpd, TAHUN, `PJR-${String(i + 1).padStart(3, '0')}/${TAHUN}`, tanggal, p.id, p.nama, kegiatan, kode, nilai, metode, bt, user.id]);
+    if (i === 2) { // sudah dipertanggungjawabkan
+      const realisasi = 7_350_000;
+      await tx(async (c) => {
+        const { entry } = await catatTransaksi(c, user, skpd, { tanggal: tgl(12), jenis: 'BELANJA', no_bukti: `PJR-003/${TAHUN}`, kode_rekening: kode, metode,
+          uraian: `Pertanggungjawaban panjar PJR-003/${TAHUN}: ${kegiatan} (${p.nama})`, pengeluaran: realisasi });
+        await c.query(`UPDATE panjar SET status = 'selesai', tanggal_selesai = $2, realisasi = $3, sisa_kembali = $4, bku_entry_ids = $5 WHERE id = $1`, [r.id, tgl(12), realisasi, nilai - realisasi, [entry.id]]);
+      });
+    }
+  }
+
+  // Transaksi ganda yang disengaja: tagihan yang sama tercatat dua kali
+  const { rows: [asli] } = await pool.query(`SELECT * FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 AND jenis = 'BELANJA' AND rekanan_id IS NOT NULL AND EXTRACT(MONTH FROM tanggal) = $3 ORDER BY pengeluaran DESC LIMIT 1`, [skpd, TAHUN, lastMonth]);
+  if (asli) {
+    const rek = REKENING.find((r) => r[0] === asli.kode_rekening);
+    const p = rek?.[2] && rek[2] !== 'honor' ? potonganBelanja({ nilai: Number(asli.pengeluaran), termasukPPN: true, jenis: rek[2] }).potongan : [];
+    await tx((c) => catatTransaksi(c, user, skpd, { tanggal: asli.tanggal, jenis: 'BELANJA', no_bukti: `${asli.no_bukti}A`, kode_rekening: asli.kode_rekening, rekanan_id: asli.rekanan_id,
+      uraian: asli.uraian, pengeluaran: Number(asli.pengeluaran), metode: asli.metode, pajak: p }));
+  }
+
+  // Lampiran contoh (nota PDF) pada beberapa belanja bulan berjalan
+  const { rows: bel } = await pool.query(`SELECT e.id, e.no_bukti, e.tanggal, e.uraian, e.pengeluaran, rk.nama AS rekanan FROM bku_entries e LEFT JOIN rekanan rk ON rk.id = e.rekanan_id
+    WHERE e.skpd_id = $1 AND e.tahun = $2 AND e.jenis = 'BELANJA' AND EXTRACT(MONTH FROM e.tanggal) = $3 ORDER BY e.no_urut LIMIT 4`, [skpd, TAHUN, lastMonth]);
+  for (const e of bel) {
+    const buf = pdfNota(['NOTA / KUITANSI PEMBAYARAN', '', `No. bukti : ${e.no_bukti}`, `Tanggal   : ${e.tanggal}`, `Penerima  : ${e.rekanan || 'Pelaksana kegiatan'}`,
+      `Uraian    : ${e.uraian.slice(0, 60)}`, `Jumlah    : Rp ${Number(e.pengeluaran).toLocaleString('id-ID')}`, '', 'Lunas dibayar,', '', '', '(tanda tangan & stempel)']);
+    await pool.query(`INSERT INTO lampiran (bku_entry_id, skpd_id, nama_file, mime, ukuran, sha256, data, uploaded_by) VALUES ($1,$2,$3,'application/pdf',$4,encode(sha256($5),'hex'),$5,$6)`,
+      [e.id, skpd, `nota-${e.no_bukti}.pdf`, buf.length, buf, user.id]);
+  }
+}
+
 async function main() {
   await migrate();
   const today = new Date();
@@ -261,6 +371,7 @@ async function main() {
     const { rows: [cnt] } = await pool.query('SELECT COUNT(*)::int AS n FROM bku_entries WHERE skpd_id = $1', [skpd]);
     console.log(`[seed] ${s.nama}: ${cnt.n} entri BKU`);
   }
+  await seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
   // Mutasi bank contoh: salin transaksi bank September + 2 baris yang tidak ada di BKU (biaya admin & bunga)
   bankRows.push({ tanggal: '2026-09-30', ket: 'BIAYA ADMINISTRASI', debet: 15000, kredit: 0 }, { tanggal: '2026-09-30', ket: 'BUNGA JASA GIRO', debet: 0, kredit: 48250.37 });
   if (bankRows.length > 4) bankRows.splice(3, 1); // satu transaksi BKU sengaja tidak ada di bank

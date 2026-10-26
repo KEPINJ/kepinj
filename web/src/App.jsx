@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useApp } from './lib/ctx.jsx';
 import Layout from './components/Layout.jsx';
 import { Loading } from './components/ui.jsx';
@@ -25,9 +25,18 @@ const TutupBuku = lazy(() => import('./pages/TutupBuku.jsx'));
 const Spj = lazy(() => import('./pages/Spj.jsx'));
 const BukuPembantu = lazy(() => import('./pages/BukuPembantu.jsx'));
 const Peringatan = lazy(() => import('./pages/Peringatan.jsx'));
+const Spp = lazy(() => import('./pages/Spp.jsx'));
+const Panjar = lazy(() => import('./pages/Panjar.jsx'));
+const LaporanPimpinan = lazy(() => import('./pages/LaporanPimpinan.jsx'));
+const VerifikasiDokumen = lazy(() => import('./pages/VerifikasiDokumen.jsx'));
 
 export default function App() {
   const { user } = useApp();
+  const loc = useLocation();
+  // Halaman verifikasi dokumen (hasil pindai QR) terbuka untuk publik tanpa login
+  if (loc.pathname.startsWith('/v/')) {
+    return <Suspense fallback={<Loading />}><Routes><Route path="/v/:kode" element={<VerifikasiDokumen />} /></Routes></Suspense>;
+  }
   if (user === undefined) return <Loading text="Menyiapkan aplikasi…" />;
   if (!user) return <Login />;
   return (
@@ -44,6 +53,9 @@ export default function App() {
           <Route path="spj" element={<Spj />} />
           <Route path="buku-pembantu" element={<BukuPembantu />} />
           <Route path="peringatan" element={<Peringatan />} />
+          <Route path="spp" element={<Spp />} />
+          <Route path="panjar" element={<Panjar />} />
+          <Route path="laporan-pimpinan" element={<LaporanPimpinan />} />
           <Route path="pajak/kalkulator" element={<Kalkulator />} />
           <Route path="pajak/register" element={<RegisterPajak />} />
           <Route path="pajak/coretax" element={<Coretax />} />
