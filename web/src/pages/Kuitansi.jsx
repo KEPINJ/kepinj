@@ -12,7 +12,7 @@ export default function Kuitansi() {
   const nilai = Number(e.pengeluaran) || Number(e.penerimaan);
   const potongan = pajak.reduce((a, p) => a + Number(p.nominal), 0);
   return (
-    <div className="min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
+    <div className="theme-light min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
       <style>{'@media print { @page { size: A4 portrait; margin: 15mm; } }'}</style>
       <div className="no-print mx-auto mb-4 flex max-w-[800px] justify-end px-4"><Button icon={Printer} onClick={() => window.print()}>Cetak kuitansi</Button></div>
       <div className="print-area mx-auto max-w-[800px] bg-white p-10 text-[13px] text-black shadow-lg">

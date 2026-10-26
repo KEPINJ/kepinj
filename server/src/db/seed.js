@@ -107,7 +107,8 @@ async function main() {
   const lastMonth = today.getFullYear() === TAHUN ? today.getMonth() + 1 : 12;
   const lastDay = today.getFullYear() === TAHUN ? today.getDate() : 31;
 
-  await pool.query(`TRUNCATE bku_verifications, pajak, bku_chain_head, daily_summary, outbox, penutupan_kas, dataset_rows, datasets, pipelines, anggaran, pegawai RESTART IDENTITY CASCADE`);
+  await pool.query(`TRUNCATE bku_verifications, pajak, bku_chain_head, daily_summary, outbox, penutupan_kas, dataset_rows, datasets, pipelines, anggaran, pegawai,
+    periode_kunci, spp, panjar, lampiran, rekonsiliasi_bank, dokumen_verifikasi RESTART IDENTITY CASCADE`);
   await pool.query('ALTER TABLE bku_entries DISABLE TRIGGER bku_immutable');
   await pool.query('TRUNCATE bku_entries');
   await pool.query('ALTER TABLE bku_entries ENABLE TRIGGER bku_immutable');

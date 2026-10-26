@@ -16,7 +16,7 @@ export default function CetakBku() {
   if (loading || !data) return <Loading />;
   const s = data.skpd; const r = data.ringkasan;
   return (
-    <div className="min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
+    <div className="theme-light min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
       <div className="no-print mx-auto mb-4 flex max-w-[1100px] justify-end px-4"><Button icon={Printer} onClick={() => window.print()}>Cetak / simpan PDF</Button></div>
       <div className="print-area mx-auto max-w-[1100px] bg-white p-10 text-[11px] text-black shadow-lg">
         <div className="text-center">

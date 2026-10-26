@@ -15,7 +15,7 @@ export default function TransaksiForm({ open, onClose, onSaved }) {
   const { skpdId, tahun } = useApp();
   const toast = useToast();
   const [f, setF] = useState(empty());
-  const [ref, setRef] = useState({ jenis: {}, rekening: [], rekanan: [], realisasi: [], objek: [] });
+  const [ref, setRef] = useState({ jenis: {}, rekening: [], rekanan: [], realisasi: [], objek: [], kunci: [] });
   const [pajak, setPajak] = useState([]);
   const [auto, setAuto] = useState({ aktif: true, jenis: 'barang', termasukPPN: true, pkp: true, punyaNpwp: true, honor: 'asn', golongan: 'III' });
   const [err, setErr] = useState('');
@@ -27,12 +27,14 @@ export default function TransaksiForm({ open, onClose, onSaved }) {
     Promise.all([
       api.get('/api/bku/meta'), api.get('/api/master/rekening'), api.get('/api/master/rekanan'),
       api.get('/api/laporan/realisasi', { skpd_id: skpdId, tahun }), api.get('/api/pajak/referensi'),
-    ]).then(([m, r, k, real, pr]) => setRef({ jenis: m.jenis, rekening: r.rows, rekanan: k.rows, realisasi: real.rows, objek: pr.objek })).catch((e) => setErr(e.message));
+      api.get('/api/tutup-buku', { skpd_id: skpdId, tahun }).catch(() => ({ bulan: [] })),
+    ]).then(([m, r, k, real, pr, tb]) => setRef({ jenis: m.jenis, rekening: r.rows, rekanan: k.rows, realisasi: real.rows, objek: pr.objek, kunci: tb.bulan.filter((b) => b.dikunci).map((b) => `${tahun}-${String(b.bulan).padStart(2, '0')}`) })).catch((e) => setErr(e.message));
   }, [open, skpdId, tahun]);
 
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e?.target ? e.target.value : e }));
   const arah = MASUK.includes(f.jenis) ? 'penerimaan' : KELUAR.includes(f.jenis) ? 'pengeluaran' : f.arah;
   const isBelanja = f.jenis === 'BELANJA';
+  const terkunci = ref.kunci.includes(String(f.tanggal).slice(0, 7));
   const rekanan = ref.rekanan.find((r) => String(r.id) === String(f.rekanan_id));
   const real = ref.realisasi.find((r) => r.kode_rekening === f.kode_rekening);
   const isHonor = /honor/i.test(ref.rekening.find((r) => r.kode === f.kode_rekening)?.nama || '');
@@ -75,6 +77,7 @@ export default function TransaksiForm({ open, onClose, onSaved }) {
       footer={<><Button variant="secondary" onClick={onClose}>Batal</Button><Button loading={busy} onClick={submit}>Simpan transaksi</Button></>}>
       <div className="space-y-4">
         {err && <Alert tone="error">{err}</Alert>}
+        {terkunci && <Alert tone="warn" title="Bulan ini sudah ditutup buku">Transaksi bertanggal {f.tanggal} akan ditolak. Pilih tanggal pada bulan yang masih terbuka.</Alert>}
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Tanggal"><Input type="date" value={f.tanggal} onChange={set('tanggal')} /></Field>
           <Field label="Jenis transaksi"><Select value={f.jenis} onChange={set('jenis')} options={Object.entries(ref.jenis).map(([value, label]) => ({ value, label }))} /></Field>

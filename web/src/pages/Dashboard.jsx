@@ -65,11 +65,11 @@ export default function Dashboard() {
           <div className="h-72">
             <ResponsiveContainer>
               <BarChart data={chart} barGap={2} margin={{ left: 8, right: 8, top: 8 }}>
-                <CartesianGrid vertical={false} stroke="#eef2f6" />
-                <XAxis dataKey="nama" tickLine={false} axisLine={{ stroke: '#cbd5e1' }} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis tickFormatter={compact} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#64748b' }} width={56} />
+                <CartesianGrid vertical={false} stroke="rgb(var(--slate-100))" />
+                <XAxis dataKey="nama" tickLine={false} axisLine={{ stroke: 'rgb(var(--slate-300))' }} tick={{ fontSize: 12, fill: 'rgb(var(--slate-500))' }} />
+                <YAxis tickFormatter={compact} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'rgb(var(--slate-500))' }} width={56} />
                 <Tooltip content={<ChartTip />} cursor={{ fill: 'rgba(15,61,94,.05)' }} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#475569' }} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: 'rgb(var(--slate-600))' }} />
                 <Bar dataKey="penerimaan" name="Penerimaan" fill={SERIES[0]} radius={[4, 4, 0, 0]} maxBarSize={22} />
                 <Bar dataKey="pengeluaran" name="Pengeluaran" fill={SERIES[1]} radius={[4, 4, 0, 0]} maxBarSize={22} />
               </BarChart>

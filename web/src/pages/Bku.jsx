@@ -5,7 +5,7 @@ import { api, download } from '../lib/api.js';
 import { useApp, useLive } from '../lib/ctx.jsx';
 import { Alert, Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Pagination, SearchInput, Select, Textarea, useLoad, useToast, Empty, cx } from '../components/ui.jsx';
 import TransaksiForm from '../components/TransaksiForm.jsx';
-import { BULAN, rp, money, tgl, waktu, JENIS_PAJAK } from '../lib/format.js';
+import { BULAN, rp, money, tgl, waktu, today, JENIS_PAJAK } from '../lib/format.js';
 
 const VERIF = { diverifikasi: ['green', 'Terverifikasi'], ditolak: ['red', 'Ditolak'] };
 
@@ -13,14 +13,21 @@ export default function Bku() {
   const { skpdId, tahun, can } = useApp();
   const [sp, setSp] = useSearchParams();
   const toast = useToast();
-  const [filter, setFilter] = useState({ bulan: tahun === new Date().getFullYear() ? new Date().getMonth() + 1 : '', q: '', jenis: '', metode: '', verif: sp.get('verif') || '' });
-  const [q, setQ] = useState('');
+  const bulanAwal = sp.get('bulan') ? Number(sp.get('bulan')) : sp.get('cari') ? '' : tahun === new Date().getFullYear() ? new Date().getMonth() + 1 : '';
+  const [filter, setFilter] = useState({ bulan: bulanAwal, q: sp.get('cari') || '', jenis: '', metode: '', verif: sp.get('verif') || '' });
+  const [q, setQ] = useState(sp.get('cari') || '');
   const [page, setPage] = useState(1);
   const [form, setForm] = useState(sp.get('baru') === '1');
-  const [detail, setDetail] = useState(null);
+  const [detail, setDetail] = useState(sp.get('id') ? Number(sp.get('id')) : null);
   const [sel, setSel] = useState(new Set());
   const [meta, setMeta] = useState({});
   useEffect(() => { api.get('/api/bku/meta').then((m) => setMeta(m.jenis)); }, []);
+  useEffect(() => {
+    if (sp.get('cari') !== null) { setQ(sp.get('cari')); setFilter((f) => ({ ...f, q: sp.get('cari'), bulan: sp.get('bulan') ? Number(sp.get('bulan')) : '' })); }
+    if (sp.get('id')) setDetail(Number(sp.get('id')));
+    if (sp.get('verif')) setFilter((f) => ({ ...f, verif: sp.get('verif') }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
   useEffect(() => { const t = setTimeout(() => { setFilter((f) => ({ ...f, q })); setPage(1); }, 350); return () => clearTimeout(t); }, [q]);
   const params = { skpd_id: skpdId, tahun, page, pageSize: 50, ...filter };
   const { data, loading, error, reload } = useLoad(() => skpdId && api.get('/api/bku', params), [skpdId, tahun, page, JSON.stringify(filter)]);
@@ -120,13 +127,14 @@ function DetailModal({ id, onClose, onChanged, onVerify }) {
   const { data, loading, reload } = useLoad(() => id && api.get(`/api/bku/${id}`), [id]);
   const [mode, setMode] = useState(null);
   const [text, setText] = useState('');
+  const [tglKoreksi, setTglKoreksi] = useState(today());
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setMode(null); setText(''); }, [id]);
+  useEffect(() => { setMode(null); setText(''); setTglKoreksi(today()); }, [id]);
   if (!id) return null;
   const e = data?.entry;
   const koreksi = async () => {
     setBusy(true);
-    try { const r = await api.post(`/api/bku/${id}/koreksi`, { alasan: text }); toast(`Jurnal koreksi No. ${r.entry.no_urut} dibuat`); onChanged(); reload(); setMode(null); } catch (x) { toast(x.message, 'error'); } finally { setBusy(false); }
+    try { const r = await api.post(`/api/bku/${id}/koreksi`, { alasan: text, tanggal: tglKoreksi }); toast(`Jurnal koreksi No. ${r.entry.no_urut} dibuat`); onChanged(); reload(); setMode(null); } catch (x) { toast(x.message, 'error'); } finally { setBusy(false); }
   };
   return (
     <Modal open={!!id} onClose={onClose} size="lg" title={e ? `Transaksi No. ${e.no_urut}` : 'Detail transaksi'} subtitle={e ? `${tgl(e.tanggal, { long: true })} · ${e.no_bukti}` : ''}
@@ -177,6 +185,7 @@ function DetailModal({ id, onClose, onChanged, onVerify }) {
           {mode && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
               <Field label={mode === 'koreksi' ? 'Alasan koreksi (entri pembalik akan dibuat)' : 'Catatan penolakan'}><Textarea value={text} onChange={(x) => setText(x.target.value)} /></Field>
+              {mode === 'koreksi' && <Field className="mt-2" label="Tanggal jurnal koreksi" hint="Bila bulan transaksi asli sudah ditutup buku, catat koreksi di bulan yang masih terbuka."><Input type="date" value={tglKoreksi} onChange={(x) => setTglKoreksi(x.target.value)} /></Field>}
               <div className="mt-2 flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setMode(null)}>Batal</Button>
                 <Button size="sm" variant={mode === 'koreksi' ? 'primary' : 'danger'} loading={busy} disabled={!text.trim()}

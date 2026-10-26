@@ -1,18 +1,34 @@
+@import './theme.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html { font-feature-settings: 'cv11', 'ss01'; }
+  body { @apply bg-page text-slate-800; }
   .num { font-variant-numeric: tabular-nums; }
+  ::selection { background: rgb(var(--brand-200)); }
 }
 @layer components {
-  .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-100 disabled:text-slate-500; }
+  .input { @apply w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-100 disabled:text-slate-500; }
   .label { @apply mb-1 block text-xs font-medium text-slate-600; }
-  .card { @apply min-w-0 rounded-xl border border-slate-200 bg-white shadow-card; }
-  .th { @apply whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500; }
+  .card { @apply min-w-0 rounded-2xl border border-slate-200/80 bg-surface shadow-card; }
+  .th { @apply whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500; }
   .td { @apply border-b border-slate-100 px-3 py-2 align-top text-sm; }
+  .skeleton { @apply relative overflow-hidden rounded-md bg-slate-200/70; }
+  .skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgb(var(--surface) / .6), transparent); animation: shimmer 1.4s infinite; }
 }
+
+/* Kartu & panel berlatar putih mengikuti warna permukaan tema (gelap saat mode gelap) */
+@media screen {
+  html.dark .bg-white { background-color: rgb(var(--surface)); }
+  html.dark .bg-white\/90 { background-color: rgb(var(--surface) / .9); }
+  html.dark .bg-white\/95 { background-color: rgb(var(--surface) / .95); }
+  html.dark .shadow-card { box-shadow: 0 1px 2px rgb(0 0 0 / .3); }
+  html.dark .theme-light .bg-white { background-color: #fff; }
+}
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
 
 @media print {
   .no-print { display: none !important; }
@@ -20,5 +36,3 @@
   .print-area { box-shadow: none !important; border: none !important; padding: 0 !important; }
   @page { size: A4 landscape; margin: 12mm; }
 }
-.page-portrait { }
-@media print { .page-portrait { } }

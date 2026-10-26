@@ -14,6 +14,8 @@ import dataRoutes from './routes/data.js';
 import laporanRoutes from './routes/laporan.js';
 import masterRoutes from './routes/master.js';
 import systemRoutes from './routes/system.js';
+import tutupBukuRoutes from './routes/tutupbuku.js';
+import pengingatRoutes from './routes/pengingat.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -42,7 +44,7 @@ export async function buildApp() {
   });
 
   authRoutes(app);
-  for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes]) await app.register(r);
+  for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });
