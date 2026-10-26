@@ -30,7 +30,7 @@ export default async function laporanRoutes(app) {
     const bulanIni = new Date().getMonth() + 1;
     const cond = semua ? 'TRUE' : 'skpd_id = $2';
     const p = semua ? [tahun] : [tahun, skpd];
-    const [kpi, bulanan, pajak, verif, terbaru, perSkpd, real] = await Promise.all([
+    const [kpi, bulanan, pajak, verif, terbaru, perSkpd, real, komposisi] = await Promise.all([
       query(`SELECT COALESCE(SUM(penerimaan),0) AS penerimaan, COALESCE(SUM(pengeluaran),0) AS pengeluaran,
           COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode = 'bank'),0) AS saldo_bank,
           COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode = 'tunai'),0) AS saldo_tunai,
@@ -52,6 +52,8 @@ export default async function laporanRoutes(app) {
       semua ? query(`SELECT COALESCE((SELECT SUM(pagu) FROM anggaran WHERE tahun = $1),0) AS pagu,
           COALESCE((SELECT SUM(CASE WHEN jenis = 'KOREKSI' THEN pengeluaran - penerimaan ELSE pengeluaran END) FROM bku_entries WHERE tahun = $1 AND kode_rekening IS NOT NULL AND jenis IN ('BELANJA','SP2D_LS','KOREKSI')),0) AS realisasi`, [tahun])
         : query(REALISASI_SQL, [skpd, tahun]),
+      query(`SELECT jenis, SUM(pengeluaran) AS nilai, COUNT(*)::int AS jumlah FROM bku_entries
+        WHERE tahun = $1 AND ${cond} AND pengeluaran > 0 AND jenis NOT IN ('PELIMPAHAN') GROUP BY 1 ORDER BY 2 DESC`, p),
     ]);
     const k = kpi.rows[0];
     const realisasi = semua ? real.rows[0] : {
@@ -71,6 +73,7 @@ export default async function laporanRoutes(app) {
       terbaru: terbaru.rows,
       per_skpd: perSkpd.rows,
       realisasi,
+      komposisi: komposisi.rows.map((r) => ({ ...r, nilai: Number(r.nilai) })),
     };
   });
 

@@ -22,6 +22,9 @@ const Pengguna = lazy(() => import('./pages/Pengguna.jsx'));
 const CetakBku = lazy(() => import('./pages/CetakBku.jsx'));
 const Kuitansi = lazy(() => import('./pages/Kuitansi.jsx'));
 const TutupBuku = lazy(() => import('./pages/TutupBuku.jsx'));
+const Spj = lazy(() => import('./pages/Spj.jsx'));
+const BukuPembantu = lazy(() => import('./pages/BukuPembantu.jsx'));
+const Peringatan = lazy(() => import('./pages/Peringatan.jsx'));
 
 export default function App() {
   const { user } = useApp();
@@ -38,6 +41,9 @@ export default function App() {
           <Route path="penutupan-kas" element={<PenutupanKas />} />
           <Route path="rekonsiliasi" element={<Rekonsiliasi />} />
           <Route path="tutup-buku" element={<TutupBuku />} />
+          <Route path="spj" element={<Spj />} />
+          <Route path="buku-pembantu" element={<BukuPembantu />} />
+          <Route path="peringatan" element={<Peringatan />} />
           <Route path="pajak/kalkulator" element={<Kalkulator />} />
           <Route path="pajak/register" element={<RegisterPajak />} />
           <Route path="pajak/coretax" element={<Coretax />} />

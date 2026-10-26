@@ -1,12 +1,13 @@
 import {
   LayoutDashboard, BookOpen, Calculator, FileSpreadsheet, Upload, Landmark, ShieldCheck, Users, Database, Receipt,
-  Wallet, BarChart3, Printer, ScrollText, Lock, Plus,
+  Wallet, BarChart3, Printer, ScrollText, Lock, Plus, FileCheck2, BookCopy, ShieldAlert,
 } from 'lucide-react';
 
 // Struktur menu tunggal: dipakai sidebar, pencarian cepat (Ctrl+K) dan navigasi bawah di ponsel.
 export const NAV = [
   { group: 'Utama', items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, keywords: 'beranda ringkasan' },
+    { to: '/peringatan', label: 'Peringatan Anomali', icon: ShieldAlert, keywords: 'duplikat ganda kas tunai pagu anomali temuan' },
   ] },
   { group: 'Kas & BKU', items: [
     { to: '/bku', label: 'Buku Kas Umum', icon: BookOpen, keywords: 'transaksi kas umum belanja penerimaan sp2d' },
@@ -20,6 +21,8 @@ export const NAV = [
     { to: '/pajak/coretax', label: 'Ekspor Coretax', icon: FileSpreadsheet, keywords: 'xml bukti potong djp bppu bp21 bpmp' },
   ] },
   { group: 'Anggaran & Laporan', items: [
+    { to: '/spj', label: 'SPJ Bendahara', icon: FileCheck2, keywords: 'pertanggungjawaban fungsional administratif laporan bulanan' },
+    { to: '/buku-pembantu', label: 'Buku Pembantu', icon: BookCopy, keywords: 'kas tunai bank rincian objek up gu tu' },
     { to: '/realisasi', label: 'Realisasi Anggaran', icon: BarChart3, keywords: 'pagu dpa serapan' },
     { to: '/laporan', label: 'Cetak Laporan', icon: Printer, keywords: 'print pdf excel' },
   ] },
@@ -38,6 +41,7 @@ export const ACTIONS = [
   { to: '/bku?baru=1', label: 'Catat transaksi baru', icon: Plus, roles: ['admin', 'bendahara'], keywords: 'tambah input belanja' },
   { to: '/pajak/kalkulator', label: 'Hitung PPh 21 / PPN', icon: Calculator, keywords: 'kalkulator' },
   { to: '/laporan', label: 'Cetak BKU bulanan', icon: Printer, keywords: 'laporan print' },
+  { to: '/spj', label: 'Cetak SPJ fungsional bulan ini', icon: FileCheck2, keywords: 'laporan pertanggungjawaban' },
 ];
 
 export const allNavItems = (can) => NAV.flatMap((g) => g.items.filter((i) => !i.roles || can(...i.roles)).map((i) => ({ ...i, group: g.group })));

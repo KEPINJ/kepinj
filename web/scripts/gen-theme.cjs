@@ -21,8 +21,11 @@ const pal = {
     dark:  { 50:'#1d1633',100:'#271d45',200:'#3d2d6b',300:'#5a43a0',400:'#8f6ef0',500:'#8b5cf6',600:'#a07ef8',700:'#b9a0fb',800:'#d0c0fd',900:'#e4dbfe' } },
 };
 const extra = {
-  light: { surface:'#ffffff', page:'#f3f6fa', primary:'#0f3d5e', 'primary-hover':'#155886', ring:'#1f6fa1' },
-  dark:  { surface:'#0f192a', page:'#0a1220', primary:'#2577b0', 'primary-hover':'#2f88c7', ring:'#4a95c7' },
+  light: { surface:'#ffffff', page:'#f3f6fa', primary:'#0f3d5e', 'primary-hover':'#155886', ring:'#1f6fa1',
+    'series-1':'#1f6fa1', 'series-2':'#e0a82e', 'series-3':'#8b5cf6', 'series-4':'#0f9488', 'series-5':'#d9534f' },
+  // Seri grafik mode gelap divalidasi terhadap permukaan #0f192a (lightness band, CVD, kontras)
+  dark:  { surface:'#0f192a', page:'#0a1220', primary:'#2577b0', 'primary-hover':'#2f88c7', ring:'#4a95c7',
+    'series-1':'#3f8dbd', 'series-2':'#b8861f', 'series-3':'#8b5cf6', 'series-4':'#11a394', 'series-5':'#e5646b' },
 };
 const block = (mode) => Object.entries(pal).flatMap(([n, p]) => Object.entries(p[mode]).map(([s, h]) => `  --${n}-${s}: ${hex(h)};`))
   .concat(Object.entries(extra[mode]).map(([k, h]) => `  --${k}: ${hex(h)};`)).join('\n');

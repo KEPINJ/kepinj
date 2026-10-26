@@ -67,6 +67,11 @@
   --primary: 15 61 94;
   --primary-hover: 21 88 134;
   --ring: 31 111 161;
+  --series-1: 31 111 161;
+  --series-2: 224 168 46;
+  --series-3: 139 92 246;
+  --series-4: 15 148 136;
+  --series-5: 217 83 79;
   color-scheme: light;
 }
 @media screen {
@@ -138,6 +143,11 @@
     --primary: 37 119 176;
     --primary-hover: 47 136 199;
     --ring: 74 149 199;
+    --series-1: 63 141 189;
+    --series-2: 184 134 31;
+    --series-3: 139 92 246;
+    --series-4: 17 163 148;
+    --series-5: 229 100 107;
     color-scheme: dark;
   }
   html.dark .theme-light { color-scheme: light; }
