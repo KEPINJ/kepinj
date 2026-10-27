@@ -1,6 +1,7 @@
 import { query, tx, audit, emit, pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { insertEntries, verifyChain, JENIS_BKU } from '../lib/ledger.js';
+import { verifySub } from '../lib/subledger.js';
 import { bad, notFound, int, isDate, money, scopeSkpd, canWrite, sendFile, XLSX, required } from '../lib/http.js';
 import { buildWorkbook } from '../lib/excel.js';
 import { terbilang } from '../../../shared/terbilang.js';
@@ -117,6 +118,10 @@ export default async function bkuRoutes(app) {
     const client = await pool.connect();
     try {
       const res = await verifyChain(client, skpd, tahun);
+      // Buku pembantu (BKU penerimaan & BKU bendahara pembantu) punya rantai hash sendiri
+      const { rows: units } = await client.query('SELECT id, nama FROM unit_kerja WHERE skpd_id = $1 ORDER BY kode', [skpd]);
+      res.buku_pembantu = [{ nama: 'BKU Bendahara Penerimaan', ...(await verifySub(client, 'bkp', skpd, tahun)) },
+        ...(await Promise.all(units.map(async (u) => ({ nama: `BKU Pembantu ${u.nama}`, ...(await verifySub(client, 'bpp', u.id, tahun)) }))))].filter((b) => b.jumlah);
       await audit(client, req.user, 'verifikasi_integritas', 'bku', `${skpd}/${tahun}`, { valid: res.valid, jumlah: res.jumlah_entri }, req.ip);
       return res;
     } finally { client.release(); }

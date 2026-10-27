@@ -15,6 +15,8 @@ const EVT_TEXT = {
   'pajak.disetor': (d) => `Pajak ${rp(d.total)} disetor (NTPN ${d.ntpn})`,
   'periode.dikunci': (d) => `${d.user} menutup buku periode ${d.bulan}/${d.tahun}`,
   'periode.dibuka': (d) => `${d.user} membuka kunci periode ${d.bulan}/${d.tahun}`,
+  'penerimaan.updated': (d) => (d.sts ? `${d.user} menyetor ${rp(d.total)} ke kas daerah (${d.sts})` : `${d.user} mencatat penerimaan ${rp(d.nilai)}`),
+  'pembantu.updated': (d) => (d.spj ? `${d.user}: SPJ pembantu ${d.spj} ${d.status || 'diajukan'}` : `${d.user} memperbarui BKU bendahara pembantu`),
   'spp.updated': (d) => `${d.user}: ${{ spp: 'SPP baru diajukan', spm: 'SPM diterbitkan', sp2d: 'SP2D dicatat dan dibukukan', ditolak: 'pengajuan SPP ditolak' }[d.status] || 'SPP diperbarui'}`,
 };
 

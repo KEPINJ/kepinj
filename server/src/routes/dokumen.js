@@ -36,6 +36,27 @@ async function sidikDokumen(jenis, skpd, p) {
       sidik: sha({ r: d.rekening.map((r) => [r.kode_rekening, r.jumlah_sd]), a: d.arus, s: d.saldo_kas }),
       ringkasan: { Bulan: `${d.nama_bulan} ${tahun}`, 'Jumlah SPJ s.d. bulan ini': d.total.jumlah_sd, 'Saldo kas': d.saldo_kas.saldo } };
   }
+  if (jenis === 'sts') {
+    const { rows: [h] } = await query('SELECT id, skpd_id, nomor, tanggal, total FROM sts WHERE id = $1', [int(p.sts_id)]);
+    if (!h || h.skpd_id !== skpd) throw notFound('STS tidak ditemukan');
+    const { rows } = await query('SELECT e.hash FROM sts_rincian r JOIN bkp_entries e ON e.id = r.bkp_entry_id WHERE r.sts_id = $1 ORDER BY e.no_urut', [h.id]);
+    return { judul: `Surat Tanda Setoran ${h.nomor}`, sidik: sha({ t: h.total, h: rows.map((r) => r.hash) }),
+      ringkasan: { Nomor: h.nomor, Tanggal: h.tanggal, 'Jumlah penerimaan': rows.length, 'Total disetor': Number(h.total) } };
+  }
+  if (jenis === 'spj_pembantu') {
+    const { rows: [h] } = await query('SELECT s.*, k.nama AS unit FROM spj_pembantu s JOIN unit_kerja k ON k.id = s.unit_id WHERE s.id = $1', [int(p.spj_id)]);
+    if (!h || h.skpd_id !== skpd) throw notFound('SPJ tidak ditemukan');
+    const { rows } = await query('SELECT e.hash FROM spj_pembantu_rincian r JOIN bpp_entries e ON e.id = r.bpp_entry_id WHERE r.spj_id = $1 ORDER BY e.no_urut', [h.id]);
+    return { judul: `SPJ Bendahara Pembantu ${h.nomor}`, sidik: sha({ s: h.status, h: rows.map((r) => r.hash) }),
+      ringkasan: { Nomor: h.nomor, 'Unit kerja': h.unit, Status: h.status, 'Total belanja': Number(h.total_belanja) } };
+  }
+  if (jenis === 'lpj') {
+    const tahun = int(p.tahun);
+    const { rows: [t] } = await query('SELECT ringkasan FROM tutup_tahun WHERE skpd_id = $1 AND tahun = $2', [skpd, tahun]);
+    const { rows } = await query('SELECT hash FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 ORDER BY no_urut DESC LIMIT 1', [skpd, tahun]);
+    return { judul: `LPJ Bendahara Pengeluaran TA ${tahun}`, sidik: sha({ h: rows[0]?.hash || null, t: Boolean(t) }),
+      ringkasan: { 'Tahun anggaran': tahun, Status: t ? 'Tahun anggaran sudah ditutup' : 'Belum ditutup', 'Transaksi': t?.ringkasan?.transaksi ?? '-' } };
+  }
   throw bad('Jenis dokumen tidak dikenal');
 }
 

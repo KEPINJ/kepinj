@@ -13,7 +13,7 @@ export function authPlugin(app) {
     if (!token) return;
     try {
       const p = jwt.verify(token, config.jwtSecret);
-      req.user = { id: p.sub, username: p.username, full_name: p.full_name, role: p.role, skpd_id: p.skpd_id };
+      req.user = { id: p.sub, username: p.username, full_name: p.full_name, role: p.role, skpd_id: p.skpd_id, unit_id: p.unit_id || null };
     } catch { /* token kedaluwarsa/invalid -> anonim */ }
   });
 }
@@ -36,13 +36,13 @@ export function authRoutes(app) {
       await tx((c) => audit(c, { username: req.body.username }, 'login_gagal', 'user', null, null, req.ip));
       throw new HttpError(401, 'Username atau password salah');
     }
-    const token = jwt.sign({ sub: u.id, username: u.username, full_name: u.full_name, role: u.role, skpd_id: u.skpd_id }, config.jwtSecret, { expiresIn: '12h' });
+    const token = jwt.sign({ sub: u.id, username: u.username, full_name: u.full_name, role: u.role, skpd_id: u.skpd_id, unit_id: u.unit_id }, config.jwtSecret, { expiresIn: '12h' });
     await tx(async (c) => {
       await c.query('UPDATE users SET last_login_at = now() WHERE id = $1', [u.id]);
       await audit(c, u, 'login', 'user', u.id, null, req.ip);
     });
     reply.setCookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: config.isProd, path: '/', maxAge: 12 * 3600 });
-    return { user: { id: u.id, username: u.username, full_name: u.full_name, role: u.role, skpd_id: u.skpd_id } };
+    return { user: { id: u.id, username: u.username, full_name: u.full_name, role: u.role, skpd_id: u.skpd_id, unit_id: u.unit_id } };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
@@ -52,7 +52,7 @@ export function authRoutes(app) {
 
   app.get('/api/auth/me', async (req) => {
     if (!req.user) return { user: null };
-    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, s.nama AS skpd_nama FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id WHERE u.id = $1', [req.user.id]);
+    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, u.unit_id, s.nama AS skpd_nama, k.nama AS unit_nama FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id LEFT JOIN unit_kerja k ON k.id = u.unit_id WHERE u.id = $1', [req.user.id]);
     return { user: rows[0] };
   });
 

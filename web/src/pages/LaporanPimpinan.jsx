@@ -74,7 +74,7 @@ export default function LaporanPimpinan() {
                       <td className="td"><button type="button" className="text-left hover:underline" onClick={() => { setSkpdId(r.id); toast(`SKPD aktif: ${r.nama}`, 'info'); }} title="Jadikan SKPD aktif"><p className="font-medium text-slate-800">{r.nama}</p></button><p className="text-[11px] text-slate-500">{r.kode} · {r.bendahara_nama || '-'}</p></td>
                       <td className="td num whitespace-nowrap text-right">{compact(r.pagu)}</td>
                       <td className="td num whitespace-nowrap text-right">{compact(r.realisasi)}</td>
-                      <td className="td"><div className="flex items-center gap-2"><Progress className="w-20 shrink-0" value={r.persen} /><span className="num w-12 text-right text-xs font-semibold">{r.persen.toFixed(1)}%</span></div></td>
+                      <td className="td"><div className="flex items-center gap-2"><div className="w-20 shrink-0"><Progress value={r.persen} /></div><span className="num w-12 text-right text-xs font-semibold">{r.persen.toFixed(1)}%</span></div></td>
                       <td className={cx('td num whitespace-nowrap text-right', r.saldo < 0 && 'text-rose-700')}>{compact(r.saldo)}</td>
                       <td className={cx('td num whitespace-nowrap text-right', r.pajak_belum_setor > 0 && 'text-amber-700')}>{r.pajak_belum_setor ? compact(r.pajak_belum_setor) : '-'}</td>
                       <td className="td num text-center">{r.belum_verifikasi ? num(r.belum_verifikasi) : <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-600" />}</td>

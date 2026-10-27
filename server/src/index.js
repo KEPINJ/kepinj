@@ -23,6 +23,9 @@ import panjarRoutes from './routes/panjar.js';
 import lampiranRoutes from './routes/lampiran.js';
 import dokumenRoutes from './routes/dokumen.js';
 import pimpinanRoutes from './routes/pimpinan.js';
+import penerimaanRoutes from './routes/penerimaan.js';
+import pembantuRoutes from './routes/pembantu.js';
+import tutupTahunRoutes from './routes/tutuptahun.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -52,7 +55,7 @@ export async function buildApp() {
 
   authRoutes(app);
   for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes, spjRoutes, anomaliRoutes,
-    sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes]) await app.register(r);
+    sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });

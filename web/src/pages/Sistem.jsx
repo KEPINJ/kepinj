@@ -26,6 +26,11 @@ export default function Sistem() {
               <ul className="mt-1 space-y-0.5 text-xs">{chain.masalah.map((m, i) => <li key={i}>{m.no_urut ? `No. ${m.no_urut}: ` : ''}{m.masalah}</li>)}</ul>
             </Alert>
           ))}
+          {chain?.buku_pembantu?.length > 0 && (
+            <ul className="mt-3 space-y-1.5 text-sm">
+              {chain.buku_pembantu.map((b) => <li key={b.nama} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"><span>{b.nama}</span><Badge color={b.valid ? 'green' : 'red'}>{b.valid ? `utuh · ${num(b.jumlah)} entri` : 'rantai putus'}</Badge></li>)}
+            </ul>
+          )}
         </Card>
         <Card title="Pipeline event realtime" actions={<Badge color={live.connected ? 'green' : 'slate'}><Radio className="h-3 w-3" />{live.connected ? 'terhubung' : 'terputus'}</Badge>}>
           {!s ? <Loading /> : (

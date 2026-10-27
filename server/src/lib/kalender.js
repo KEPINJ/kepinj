@@ -27,3 +27,10 @@ export function hariIni() {
 export const selisihHari = (dari, ke) => Math.round((Date.parse(ke) - Date.parse(dari)) / 86400000);
 
 export const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+/** Hari kerja sebelum `today` (Sabtu/Minggu dilewati): penerimaan sebelum tanggal ini yang belum disetor dianggap terlambat. */
+export function batasSetor(today) {
+  const d = new Date(`${today}T00:00:00Z`);
+  do d.setUTCDate(d.getUTCDate() - 1); while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}

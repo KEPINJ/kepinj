@@ -8,6 +8,8 @@ import { hashPassword } from '../auth.js';
 import { catatTransaksi, setorPajak } from '../lib/transaksi.js';
 import { insertEntries } from '../lib/ledger.js';
 import { insertPajak } from '../routes/pajak.js';
+import { catatPenerimaan, buatSts, batasSetor } from '../routes/penerimaan.js';
+import { limpahUp, belanjaPembantu, ajukanSpj, sahkanSpj } from '../routes/pembantu.js';
 import { potonganBelanja, pph21Bulanan, pph21HonorASN, pph21BukanPegawai } from '../../../shared/tax.js';
 
 let seed = 20260117;
@@ -40,6 +42,14 @@ const REKENING = [
   ['5.1.02.02.01.0061', 'Belanja Tagihan Listrik', null, [8_000_000, 22_000_000]],
   ['5.2.02.10.01.0002', 'Belanja Modal Personal Computer', 'barang', [25_000_000, 150_000_000]],
   ['5.2.03.01.01.0001', 'Belanja Modal Bangunan Gedung Kantor', 'konstruksi', [80_000_000, 450_000_000]],
+];
+const PENDAPATAN = [
+  ['4.1.02.02.01.0002', 'Retribusi Penyewaan Tanah dan Bangunan', [3_500_000, 18_000_000]],
+  ['4.1.02.02.01.0003', 'Retribusi Pemakaian Ruangan/Gedung Pertemuan', [750_000, 4_500_000]],
+  ['4.1.04.03.01.0001', 'Hasil Penjualan Aset Daerah yang Tidak Dipisahkan (Lelang)', [12_000_000, 65_000_000]],
+  ['4.1.04.14.01.0001', 'Pendapatan Denda Keterlambatan Pelaksanaan Pekerjaan', [2_000_000, 25_000_000]],
+  ['4.1.02.01.01.0001', 'Retribusi Pelayanan Kesehatan di Puskesmas', [1_000_000, 6_000_000]],
+  ['4.1.02.03.01.0001', 'Retribusi Persetujuan Bangunan Gedung (PBG)', [2_500_000, 30_000_000]],
 ];
 const NON_ANGGARAN = [['0.0.00.00.00.0001', 'Uang Persediaan (UP)'], ['0.0.00.00.00.0002', 'Pajak dan Potongan (PFK)']];
 
@@ -210,6 +220,167 @@ async function seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds }
   }
 }
 
+const hariKerjaBerikut = (d) => { const x = new Date(`${d}T00:00:00Z`); do x.setUTCDate(x.getUTCDate() + 1); while (x.getUTCDay() === 0 || x.getUTCDay() === 6); return x.toISOString().slice(0, 10); };
+const akhirPekan = (d) => [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
+
+/** Tahap 4 (BKAD): BKU penerimaan & STS, bendahara pembantu dengan SPJ. Dijalankan sebelum tutup buku. */
+async function seedTahap4({ TAHUN, lastMonth, lastDay, skpdIds, userIds, rekananIds }) {
+  const skpd = skpdIds[0]; const s = SKPD[0];
+  const today = ymd(TAHUN, lastMonth, lastDay);
+  // ---- Bendahara penerimaan ----
+  const penerima = { id: userIds.penerimaan, full_name: 'Nur Aisyah, S.E.' };
+  const rekBkad = PENDAPATAN.slice(0, 4);
+  const PENYETOR = ['PT Graha Niaga Lestari', 'Koperasi Pegawai Pemda', 'CV Mitra Usaha Bersama', 'Yayasan Pendidikan Harapan', 'PT Sumber Rejeki Abadi', 'Bank Daerah Cabang Utama'];
+  const realPer = {};
+  let noTbp = 0;
+  for (let m = 1; m <= lastMonth; m++) {
+    const maxDay = m === lastMonth ? lastDay : new Date(TAHUN, m, 0).getDate();
+    const n = between(3, 6);
+    const hari = Array.from({ length: n }, () => between(2, maxDay)).sort((a, b) => a - b);
+    const items = [];
+    for (const d of hari) {
+      let tanggal = ymd(TAHUN, m, d);
+      if (akhirPekan(tanggal)) tanggal = hariKerjaBerikut(tanggal);
+      if (Number(tanggal.slice(5, 7)) !== m) tanggal = ymd(TAHUN, m, d - (new Date(Date.UTC(TAHUN, m - 1, d)).getUTCDay() === 0 ? 2 : 1));
+      if (tanggal > today) continue;
+      const [kode, nama, rentang] = rekBkad[rnd() < 0.45 ? 0 : rnd() < 0.55 ? 1 : rnd() < 0.5 ? 3 : 2];
+      const nilai = round(between(...rentang), 5_000);
+      noTbp++;
+      const penyetor = pick(PENYETOR);
+      await tx(async (c) => {
+        const e = await catatPenerimaan(c, penerima, skpd, { tanggal, kode_rekening: kode, nilai, metode: rnd() < 0.7 ? 'bank' : 'tunai', no_bukti: `TBP-${String(noTbp).padStart(4, '0')}/${TAHUN}`,
+          penyetor, uraian: `${nama} - ${penyetor}` });
+        items.push(e);
+      });
+      realPer[kode] = (realPer[kode] || 0) + nilai;
+    }
+    // STS pada hari kerja berikutnya; penerimaan terbaru (belum lewat batas setor) dibiarkan belum disetor
+    const batas = batasSetor(today);
+    for (const e of items) {
+      const tanggal = hariKerjaBerikut(e.tanggal);
+      if (tanggal > today || (m === lastMonth && e.tanggal >= batas)) continue;
+      await tx((c) => buatSts(c, penerima, skpd, { tanggal, entry_ids: [e.id], no_bukti_bank: `TRX${between(1e8, 9e8)}` }));
+    }
+  }
+  // Satu penerimaan lama yang terlambat disetor (lebih dari 1 hari kerja) agar tampil di peringatan
+  const lateDay = Math.max(2, lastDay - 8);
+  let late = ymd(TAHUN, lastMonth, lateDay);
+  if (akhirPekan(late)) late = hariKerjaBerikut(late);
+  await tx((c) => catatPenerimaan(c, penerima, skpd, { tanggal: late, kode_rekening: rekBkad[0][0], nilai: 7_250_000, metode: 'tunai', no_bukti: `TBP-${String(++noTbp).padStart(4, '0')}/${TAHUN}`,
+    penyetor: 'CV Mitra Usaha Bersama', uraian: 'Retribusi Penyewaan Tanah dan Bangunan - kios pasar blok C (triwulan IV)' }));
+  realPer[rekBkad[0][0]] = (realPer[rekBkad[0][0]] || 0) + 7_250_000;
+  if (!akhirPekan(today)) await tx((c) => catatPenerimaan(c, penerima, skpd, { tanggal: today, kode_rekening: rekBkad[1][0], nilai: 2_400_000, metode: 'tunai', no_bukti: `TBP-${String(++noTbp).padStart(4, '0')}/${TAHUN}`,
+    penyetor: 'Yayasan Pendidikan Harapan', uraian: 'Retribusi Pemakaian Ruangan/Gedung Pertemuan - aula lantai 3' }));
+  for (const [kode, total] of Object.entries(realPer)) {
+    await pool.query('INSERT INTO target_pendapatan (skpd_id, tahun, kode_rekening, target) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+      [skpd, TAHUN, kode, round((total / lastMonth) * 12 * (0.95 + rnd() * 0.3), 1_000_000)]);
+  }
+  // Target pendapatan SKPD lain (realisasi dicatat oleh bendahara penerimaan masing-masing)
+  await pool.query('INSERT INTO target_pendapatan (skpd_id, tahun, kode_rekening, target) VALUES ($1,$2,$3,$4),($5,$2,$6,$7) ON CONFLICT DO NOTHING',
+    [skpdIds[2], TAHUN, PENDAPATAN[4][0], 450_000_000, skpdIds[3], PENDAPATAN[5][0], 1_250_000_000]);
+
+  // ---- Bendahara pengeluaran pembantu ----
+  const induk = { id: userIds.bendahara, full_name: s.bendahara_nama, role: 'bendahara', skpd_id: skpd };
+  const pembantu = { id: userIds.pembantu, full_name: 'Gilang Ramadhan, S.E.' };
+  const unit = (await pool.query(`INSERT INTO unit_kerja (skpd_id, kode, nama, bendahara_nama, bendahara_nip) VALUES
+    ($1,'UPT-PAD','UPT Pelayanan Pendapatan Daerah Wilayah I','Gilang Ramadhan, S.E.','199103182015031004'),
+    ($1,'BID-ANG','Bidang Anggaran','Maya Puspita, A.Md.','199306052019022003'),
+    ($1,'BID-AST','Bidang Pengelolaan Aset','Oki Setiawan, S.E.','198910112014031002') RETURNING *`, [skpd])).rows;
+  await pool.query('UPDATE users SET unit_id = $1 WHERE id = $2', [unit[0].id, userIds.pembantu]);
+  const m1 = Math.max(1, lastMonth - 1); const m2 = lastMonth;
+  const t = (m, d) => ymd(TAHUN, m, Math.min(d, m === lastMonth ? lastDay : 28));
+  const belanja = (u, user, m, d, i, kode, uraian, nilai, jenis, rekanan) => tx((c) => belanjaPembantu(c, user, u, {
+    tanggal: t(m, d), no_bukti: `BPP-${u.kode}-${String(m).padStart(2, '0')}${String(i).padStart(2, '0')}`, kode_rekening: kode, uraian, nilai, rekanan_id: rekanan || null,
+    metode: nilai > 2_000_000 ? 'bank' : 'tunai', pajak: jenis ? potonganBelanja({ nilai, termasukPPN: true, jenis }).potongan : [] }));
+  // UPT: bulan lalu dipertanggungjawabkan dan disahkan; bulan ini SPJ diajukan dan satu belanja belum di-SPJ-kan
+  await tx((c) => limpahUp(c, induk, unit[0], { tanggal: t(m1, 2), nilai: 60_000_000 }));
+  await belanja(unit[0], pembantu, m1, 4, 1, '5.1.02.01.01.0024', 'Belanja ATK pelayanan wajib pajak', 4_850_000, 'barang', rekananIds[3]);
+  await belanja(unit[0], pembantu, m1, 9, 2, '5.1.02.01.01.0026', 'Cetak blanko SPPT dan formulir pendaftaran', 8_200_000, 'barang', rekananIds[6]);
+  await belanja(unit[0], pembantu, m1, 15, 3, '5.1.02.01.01.0052', 'Makan minum sosialisasi pajak daerah di kecamatan', 3_600_000, 'jasa', rekananIds[5]);
+  await belanja(unit[0], pembantu, m1, 18, 4, '5.1.02.04.01.0001', 'Perjalanan dinas pendataan objek pajak ke 4 kecamatan', 2_750_000, null);
+  await belanja(unit[0], pembantu, m1, 23, 5, '5.1.02.03.02.0035', 'Servis kendaraan operasional penagihan', 2_400_000, 'jasa', rekananIds[7]);
+  await tx((c) => ajukanSpj(c, pembantu, unit[0], { tanggal: t(m1, 28), sampai: t(m1, 28) }));
+  const { rows: [spj1] } = await pool.query('SELECT id FROM spj_pembantu WHERE unit_id = $1 ORDER BY id DESC LIMIT 1', [unit[0].id]);
+  await tx(async (c) => {
+    const r = await sahkanSpj(c, induk, spj1.id, { tanggal: t(m2, 2), catatan: 'Bukti lengkap dan sesuai DPA' });
+    const { rows } = await c.query("SELECT id FROM pajak WHERE bku_entry_id = ANY($1) AND status = 'dipungut'", [r.bku_entry_ids]);
+    if (rows.length && t(m2, 10) <= today) await setorPajak(c, induk, rows.map((x) => x.id), { ntpn: ntpn(), id_billing: `0${between(1e13, 9e13)}`, tanggal_setor: t(m2, 10) });
+  });
+  await belanja(unit[0], pembantu, m2, 6, 1, '5.1.02.01.01.0052', 'Makan minum rapat evaluasi target PAD triwulan III', 2_850_000, 'jasa', rekananIds[5]);
+  await belanja(unit[0], pembantu, m2, 9, 2, '5.1.02.01.01.0024', 'Belanja tinta dan kertas printer loket pelayanan', 3_150_000, 'barang', rekananIds[3]);
+  await belanja(unit[0], pembantu, m2, 14, 3, '5.1.02.04.01.0001', 'Perjalanan dinas penagihan tunggakan retribusi', 1_850_000, null);
+  await tx((c) => ajukanSpj(c, pembantu, unit[0], { tanggal: t(m2, 16), sampai: t(m2, 16) }));
+  await belanja(unit[0], pembantu, m2, 21, 4, '5.1.02.03.02.0035', 'Penggantian ban kendaraan roda dua penagih', 1_600_000, null);
+  // Bidang Anggaran: pelimpahan berjalan
+  await tx((c) => limpahUp(c, induk, unit[1], { tanggal: t(m2, 5), nilai: 20_000_000 }));
+  await belanja(unit[1], induk, m2, 12, 1, '5.1.02.01.01.0052', 'Makan minum rapat pembahasan KUA-PPAS', 4_400_000, 'jasa', rekananIds[5]);
+  await belanja(unit[1], induk, m2, 19, 2, '5.1.02.01.01.0026', 'Penggandaan dokumen rancangan APBD', 5_750_000, 'barang', rekananIds[6]);
+  console.log(`[seed] Tahap 4: ${noTbp} penerimaan, ${unit.length} unit kerja`);
+}
+
+/** TA sebelumnya untuk Dinas Kesehatan: Januari-November sudah ditutup buku, Desember siap tutup tahun. */
+async function seedTahunLalu({ skpdIds, userIds, rekananIds }) {
+  const T = 2025; const si = 2; const skpd = skpdIds[si]; const s = SKPD[si];
+  const user = { id: userIds['bendahara.dinkes'], full_name: s.bendahara_nama };
+  const gaji = round(between(48, 56) * 1_000_000, 100);
+  const UP = 350_000_000;
+  const perRek = {};
+  await tx((c) => insertEntries(c, user, skpd, [{ tanggal: ymd(T, 1, 2), no_bukti: `SP2D-UP-001/${s.kode.slice(0, 4)}`, jenis: 'SP2D_UP', kode_rekening: '0.0.00.00.00.0001', uraian: `Penerimaan SP2D Uang Persediaan (UP) TA ${T}`, penerimaan: UP }]));
+  let spj = 0; let gu = 0; let nb = 0;
+  for (let m = 1; m <= 12; m++) {
+    const maxDay = new Date(T, m, 0).getDate();
+    await tx((c) => insertEntries(c, user, skpd, [
+      { tanggal: ymd(T, m, 1), no_bukti: `SP2D-LS-GAJI-${String(m).padStart(2, '0')}/${T}`, jenis: 'SP2D_LS', kode_rekening: '5.1.01.01.01.0001', uraian: `Penerimaan SP2D LS Gaji dan Tunjangan PNS bulan ${m}/${T}`, penerimaan: gaji },
+      { tanggal: ymd(T, m, 1), no_bukti: `SP2D-LS-GAJI-${String(m).padStart(2, '0')}/${T}`, jenis: 'BELANJA', kode_rekening: '5.1.01.01.01.0001', uraian: `Pembayaran Gaji dan Tunjangan PNS bulan ${m}/${T}`, pengeluaran: gaji },
+    ]));
+    perRek['5.1.01.01.01.0001'] = (perRek['5.1.01.01.01.0001'] || 0) + gaji;
+    if (m > 1) {
+      await tx(async (c) => {
+        const { rows } = await c.query("SELECT id FROM pajak WHERE skpd_id = $1 AND tahun = $2 AND masa = $3 AND status = 'dipungut'", [skpd, T, m - 1]);
+        if (rows.length) {
+          const r = await setorPajak(c, user, rows.map((x) => x.id), { ntpn: ntpn(), id_billing: `0${between(1e13, 9e13)}`, tanggal_setor: ymd(T, m, 10) });
+          await c.query("UPDATE pajak SET status = 'dilaporkan', no_bukti_potong = 'BP-' || id WHERE id = ANY($1)", [r.rows.map((x) => x.id)]);
+        }
+      });
+    }
+    const days = Array.from({ length: m === 12 ? 4 : between(5, 8) }, () => between(2, m === 12 ? 20 : maxDay - 1)).sort((a, b) => a - b);
+    for (const d of days) {
+      const rek = pick(REKENING.slice(2, 11));
+      const nilai = round(between(...rek[3]) * 0.7);
+      nb++;
+      const b = { tanggal: ymd(T, m, d), no_bukti: `BKT-${String(m).padStart(2, '0')}-${String(nb).padStart(4, '0')}/${T}`, jenis: 'BELANJA', kode_rekening: rek[0], uraian: `${rek[1]} - kegiatan bulan ${m}`,
+        pengeluaran: nilai, metode: 'bank', rekanan_id: rek[2] && rek[2] !== 'honor' ? pick(rekananIds) : null };
+      if (rek[2] && rek[2] !== 'honor') b.pajak = potonganBelanja({ nilai, termasukPPN: true, jenis: rek[2] }).potongan;
+      await tx((c) => catatTransaksi(c, user, skpd, b));
+      perRek[rek[0]] = (perRek[rek[0]] || 0) + nilai;
+      spj += nilai;
+      if (spj > UP * 0.6 && m < 12) {
+        gu++;
+        await tx((c) => insertEntries(c, user, skpd, [{ tanggal: ymd(T, m, Math.min(maxDay, d + 2)), no_bukti: `SP2D-GU-${String(gu).padStart(3, '0')}/${T}`, jenis: 'SP2D_GU', kode_rekening: '0.0.00.00.00.0001', uraian: `Penerimaan SP2D Ganti Uang (GU) ke-${gu}`, penerimaan: spj }]));
+        spj = 0;
+      }
+    }
+    if (m < 12) {
+      const end = ymd(T, m, maxDay);
+      const { rows: [r] } = await pool.query(`SELECT COALESCE(SUM(penerimaan - pengeluaran),0) AS saldo, COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode='bank'),0) AS bank,
+        COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE metode='tunai'),0) AS tunai FROM bku_entries WHERE skpd_id = $1 AND tahun = $2 AND tanggal <= $3`, [skpd, T, end]);
+      await pool.query('INSERT INTO penutupan_kas (skpd_id, tanggal, saldo_bku, saldo_bank, kas_tunai, selisih, keterangan, created_by) VALUES ($1,$2,$3,$4,$5,0,$6,$7)', [skpd, end, r.saldo, r.bank, r.tunai, 'Penutupan kas akhir bulan', user.id]);
+    }
+  }
+  for (const [kode, total] of Object.entries(perRek)) await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, T, kode, round(total * (1.04 + rnd() * 0.12), 1_000_000)]);
+  await pool.query(`INSERT INTO bku_verifications (entry_id, status, verified_by) SELECT id, 'diverifikasi', $3 FROM bku_entries WHERE skpd_id = $1 AND tahun = $2`, [skpd, T, userIds.verifikator]);
+  for (let b = 1; b <= 11; b++) {
+    const akhir = ymd(T, b, new Date(T, b, 0).getDate());
+    const { rows: [r] } = await pool.query(`SELECT COALESCE(SUM(penerimaan) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3), 0)::float AS penerimaan,
+        COALESCE(SUM(pengeluaran) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3), 0)::float AS pengeluaran,
+        COALESCE(SUM(penerimaan - pengeluaran) FILTER (WHERE tanggal <= $4), 0)::float AS saldo_akhir, COUNT(*) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3)::int AS transaksi
+      FROM bku_entries WHERE skpd_id = $1 AND tahun = $2`, [skpd, T, b, akhir]);
+    await pool.query(`INSERT INTO periode_kunci (skpd_id, tahun, bulan, ringkasan, catatan, dikunci_oleh, dikunci_at) VALUES ($1,$2,$3,$4,'SPJ fungsional telah disahkan',$5,$6)`,
+      [skpd, T, b, r, user.id, new Date(Date.UTC(T, b, 10, 2)).toISOString()]);
+  }
+  console.log(`[seed] ${s.nama} TA ${T}: siap tutup tahun`);
+}
+
 async function main() {
   await migrate();
   const today = new Date();
@@ -219,6 +390,10 @@ async function main() {
 
   await pool.query(`TRUNCATE bku_verifications, pajak, bku_chain_head, daily_summary, outbox, penutupan_kas, dataset_rows, datasets, pipelines, anggaran, pegawai,
     periode_kunci, spp, panjar, lampiran, rekonsiliasi_bank, dokumen_verifikasi RESTART IDENTITY CASCADE`);
+  await pool.query('UPDATE users SET unit_id = NULL');
+  await pool.query(`TRUNCATE spj_pembantu_rincian, spj_pembantu, bpp_entries, sts_rincian, sts, bkp_entries, target_pendapatan, subledger_head, tutup_tahun RESTART IDENTITY`);
+  await pool.query('DELETE FROM unit_kerja');
+  await pool.query("SELECT setval(pg_get_serial_sequence('unit_kerja', 'id'), 1, false)");
   await pool.query('ALTER TABLE bku_entries DISABLE TRIGGER bku_immutable');
   await pool.query('TRUNCATE bku_entries');
   await pool.query('ALTER TABLE bku_entries ENABLE TRIGGER bku_immutable');
@@ -231,6 +406,7 @@ async function main() {
     skpdIds.push(r.id);
   }
   for (const [kode, nama] of REKENING) await pool.query('INSERT INTO rekening (kode, nama, jenis, level) VALUES ($1,$2,$3,6) ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama', [kode, nama, 'belanja']);
+  for (const [kode, nama] of PENDAPATAN) await pool.query('INSERT INTO rekening (kode, nama, jenis, level) VALUES ($1,$2,$3,6) ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama', [kode, nama, 'pendapatan']);
   for (const [kode, nama] of NON_ANGGARAN) await pool.query('INSERT INTO rekening (kode, nama, jenis, level) VALUES ($1,$2,$3,6) ON CONFLICT (kode) DO NOTHING', [kode, nama, 'non_anggaran']);
   for (const o of OBJEK) await pool.query(`INSERT INTO objek_pajak (kode, jenis_pajak, nama, tarif, dpp_persen, coretax_form, keterangan) VALUES ($1,$2,$3,$4,$5,$6,'Cocokkan dengan referensi kode objek pajak Coretax terbaru')
     ON CONFLICT (kode) DO UPDATE SET nama = EXCLUDED.nama, tarif = EXCLUDED.tarif, coretax_form = EXCLUDED.coretax_form`, o);
@@ -245,6 +421,7 @@ async function main() {
     ['verifikator', 'Yusuf Maulana, S.E., Ak.', 'verifikator', skpdIds[0]], ['pimpinan', 'Dr. H. Ahmad Fauzi, S.E., M.Si.', 'pimpinan', skpdIds[0]],
     ['bendahara.disdik', 'Rina Kartika, S.Ak.', 'bendahara', skpdIds[1]], ['bendahara.dinkes', 'Agus Prasetyo, A.Md.', 'bendahara', skpdIds[2]],
     ['bendahara.pupr', 'Dewi Lestari, S.E.', 'bendahara', skpdIds[3]],
+    ['penerimaan', 'Nur Aisyah, S.E.', 'bendahara_penerimaan', skpdIds[0]], ['pembantu', 'Gilang Ramadhan, S.E.', 'bendahara_pembantu', skpdIds[0]],
   ];
   const userIds = {};
   for (const [u, n, r, s] of users) {
@@ -371,6 +548,8 @@ async function main() {
     const { rows: [cnt] } = await pool.query('SELECT COUNT(*)::int AS n FROM bku_entries WHERE skpd_id = $1', [skpd]);
     console.log(`[seed] ${s.nama}: ${cnt.n} entri BKU`);
   }
+  await seedTahap4({ TAHUN, lastMonth, lastDay, skpdIds, userIds, rekananIds });
+  await seedTahunLalu({ skpdIds, userIds, rekananIds });
   await seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
   // Mutasi bank contoh: salin transaksi bank September + 2 baris yang tidak ada di BKU (biaya admin & bunga)
   bankRows.push({ tanggal: '2026-09-30', ket: 'BIAYA ADMINISTRASI', debet: 15000, kredit: 0 }, { tanggal: '2026-09-30', ket: 'BUNGA JASA GIRO', debet: 0, kredit: 48250.37 });
@@ -381,7 +560,7 @@ async function main() {
     ON CONFLICT (skpd_id, tanggal) DO UPDATE SET penerimaan = EXCLUDED.penerimaan, pengeluaran = EXCLUDED.pengeluaran, jumlah_transaksi = EXCLUDED.jumlah_transaksi`);
   await pool.query('UPDATE outbox SET published_at = now() WHERE published_at IS NULL');
   await writeSamples(samplePegawai, bankRows).catch((e) => console.warn(`[seed] file contoh tidak ditulis (${e.code || e.message}); data database tetap lengkap`));
-  console.log('[seed] selesai. Login: admin / bendahara / verifikator / pimpinan, password: bku12345');
+  console.log('[seed] selesai. Login: admin / bendahara / verifikator / pimpinan / penerimaan / pembantu, password: bku12345');
 }
 
 main().then(() => pool.end()).catch((e) => { console.error(e); process.exit(1); });

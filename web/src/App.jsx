@@ -29,6 +29,11 @@ const Spp = lazy(() => import('./pages/Spp.jsx'));
 const Panjar = lazy(() => import('./pages/Panjar.jsx'));
 const LaporanPimpinan = lazy(() => import('./pages/LaporanPimpinan.jsx'));
 const VerifikasiDokumen = lazy(() => import('./pages/VerifikasiDokumen.jsx'));
+const Penerimaan = lazy(() => import('./pages/Penerimaan.jsx'));
+const CetakSts = lazy(() => import('./pages/CetakSts.jsx'));
+const Pembantu = lazy(() => import('./pages/Pembantu.jsx'));
+const CetakSpjPembantu = lazy(() => import('./pages/CetakSpjPembantu.jsx'));
+const TutupTahun = lazy(() => import('./pages/TutupTahun.jsx'));
 
 export default function App() {
   const { user } = useApp();
@@ -44,6 +49,8 @@ export default function App() {
       <Routes>
         <Route path="/cetak/bku" element={<CetakBku />} />
         <Route path="/cetak/kuitansi/:id" element={<Kuitansi />} />
+        <Route path="/cetak/sts/:id" element={<CetakSts />} />
+        <Route path="/cetak/spj-pembantu/:id" element={<CetakSpjPembantu />} />
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="bku" element={<Bku />} />
@@ -55,6 +62,9 @@ export default function App() {
           <Route path="peringatan" element={<Peringatan />} />
           <Route path="spp" element={<Spp />} />
           <Route path="panjar" element={<Panjar />} />
+          <Route path="penerimaan" element={<Penerimaan />} />
+          <Route path="pembantu" element={<Pembantu />} />
+          <Route path="tutup-tahun" element={<TutupTahun />} />
           <Route path="laporan-pimpinan" element={<LaporanPimpinan />} />
           <Route path="pajak/kalkulator" element={<Kalkulator />} />
           <Route path="pajak/register" element={<RegisterPajak />} />

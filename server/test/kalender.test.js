@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jatuhTempo, hariKerja, selisihHari } from '../src/lib/kalender.js';
+import { jatuhTempo, hariKerja, selisihHari, batasSetor } from '../src/lib/kalender.js';
 
 test('jatuh tempo setor tgl 15 & lapor tgl 20 bulan berikutnya', () => {
   // masa Oktober 2026: 15 Nov 2026 hari Minggu -> Senin 16 Nov; 20 Nov 2026 Jumat
@@ -19,4 +19,9 @@ test('Sabtu/Minggu bergeser ke Senin', () => {
 test('selisih hari', () => {
   assert.equal(selisihHari('2026-10-26', '2026-11-16'), 21);
   assert.equal(selisihHari('2026-10-26', '2026-10-20'), -6);
+});
+
+test('batas setor penerimaan = hari kerja sebelumnya', () => {
+  assert.equal(batasSetor('2026-10-27'), '2026-10-26'); // Selasa -> Senin
+  assert.equal(batasSetor('2026-10-26'), '2026-10-23'); // Senin -> Jumat
 });

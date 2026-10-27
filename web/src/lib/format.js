@@ -31,7 +31,7 @@ export const today = () => {
 };
 
 export const JENIS_PAJAK = { PPH21: 'PPh 21', PPH22: 'PPh 22', PPH23: 'PPh 23', PPH4A2: 'PPh 4(2)', PPN: 'PPN' };
-export const ROLE = { admin: 'Administrator', bendahara: 'Bendahara', verifikator: 'Verifikator', pimpinan: 'Pimpinan' };
+export const ROLE = { admin: 'Administrator', bendahara: 'Bendahara', verifikator: 'Verifikator', pimpinan: 'Pimpinan', bendahara_penerimaan: 'Bendahara Penerimaan', bendahara_pembantu: 'Bendahara Pembantu' };
 
 /** Parse input rupiah "1.250.000,50" -> 1250000.5 */
 export function parseRp(s) {
