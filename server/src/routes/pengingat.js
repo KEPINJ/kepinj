@@ -49,47 +49,52 @@ export default async function pengingatRoutes(app) {
   app.get('/api/notifikasi', { preHandler: requireAuth }, async (req) => {
     const skpd = scopeSkpd(req.user, req.query.skpd_id);
     if (!skpd) return { items: [] };
-    const tahun = int(req.query.tahun, new Date().getFullYear());
-    const today = hariIni();
-    const items = [];
-
-    for (const j of await daftarJatuhTempo(skpd, tahun)) {
-      if (j.tingkat === 'aman') continue;
-      const aksi = j.kewajiban === 'setor' ? `Setor pajak masa ${j.nama_masa} ${rpx(j.belum_setor)}` : `Laporkan SPT masa ${j.nama_masa} (${rpx(j.belum_lapor)})`;
-      items.push({
-        id: `pajak-${j.tahun}-${j.masa}-${j.kewajiban}`, tipe: 'pajak', tingkat: j.tingkat === 'lewat' ? 'bahaya' : 'peringatan',
-        judul: j.tingkat === 'lewat' ? `Terlambat ${-j.sisa_hari} hari: ${aksi}` : `${aksi}`,
-        pesan: `Jatuh tempo ${j.kewajiban} ${fmtTgl(j.tenggat)}${j.sisa_hari >= 0 ? ` (${j.sisa_hari === 0 ? 'hari ini' : `${j.sisa_hari} hari lagi`})` : ''}.${j.rincian ? ` ${j.rincian}` : ''}`,
-        link: '/pajak/register', tanggal: j.tenggat,
-      });
-    }
-
-    const { rows: [k] } = await query('SELECT COALESCE(MAX(bulan), 0)::int AS bulan FROM periode_kunci WHERE skpd_id = $1 AND tahun = $2', [skpd, tahun]);
-    const now = new Date();
-    const bulanSelesai = now.getFullYear() > tahun ? 12 : now.getFullYear() < tahun ? 0 : now.getMonth();
-    if (k.bulan < bulanSelesai) {
-      const belum = bulanSelesai - k.bulan;
-      items.push({ id: `tutup-${tahun}-${k.bulan + 1}`, tipe: 'tutup_buku', tingkat: belum > 1 ? 'peringatan' : 'info',
-        judul: `${belum} bulan belum ditutup buku`, pesan: `Periode ${NAMA_BULAN[k.bulan]}${belum > 1 ? ` s.d. ${NAMA_BULAN[bulanSelesai - 1]}` : ''} ${tahun} belum dikunci. Tutup buku setelah SPJ disahkan.`,
-        link: '/tutup-buku', tanggal: today });
-    }
-
-    const { rows: [v] } = await query(`SELECT COUNT(*) FILTER (WHERE v.status IS NULL)::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak
-      FROM bku_entries e LEFT JOIN LATERAL (SELECT status FROM bku_verifications WHERE entry_id = e.id ORDER BY verified_at DESC LIMIT 1) v ON true
-      WHERE e.skpd_id = $1 AND e.tahun = $2 AND NOT EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = e.id AND k.skpd_id = e.skpd_id)`, [skpd, tahun]);
-    if (v.ditolak && ['admin', 'bendahara'].includes(req.user.role)) {
-      items.push({ id: `ditolak-${v.ditolak}`, tipe: 'verifikasi', tingkat: 'bahaya', judul: `${v.ditolak} transaksi ditolak verifikator`,
-        pesan: 'Periksa catatan penolakan lalu buat jurnal koreksi bila perlu.', link: '/bku?verif=ditolak', tanggal: today });
-    }
-    if (v.belum && ['admin', 'verifikator'].includes(req.user.role)) {
-      items.push({ id: `verif-${v.belum}`, tipe: 'verifikasi', tingkat: 'info', judul: `${v.belum.toLocaleString('id-ID')} transaksi menunggu verifikasi`,
-        pesan: 'Buka BKU dengan filter "Belum diverifikasi".', link: '/bku?verif=belum', tanggal: today });
-    }
-
-    for (const fn of sumberNotifikasi) items.push(...(await fn({ user: req.user, skpd, tahun, today })));
-
-    const urut = { bahaya: 0, peringatan: 1, info: 2 };
-    items.sort((a, b) => urut[a.tingkat] - urut[b.tingkat]);
-    return { items };
+    return { items: await kumpulkanNotifikasi(req.user, skpd, int(req.query.tahun, new Date().getFullYear())) };
   });
+}
+
+/** Semua notifikasi untuk satu pengguna pada satu SKPD/tahun (lonceng di header dan pengingat WA/email). */
+export async function kumpulkanNotifikasi(user, skpd, tahun) {
+  const req = { user };
+  const today = hariIni();
+  const items = [];
+
+  for (const j of await daftarJatuhTempo(skpd, tahun)) {
+    if (j.tingkat === 'aman') continue;
+    const aksi = j.kewajiban === 'setor' ? `Setor pajak masa ${j.nama_masa} ${rpx(j.belum_setor)}` : `Laporkan SPT masa ${j.nama_masa} (${rpx(j.belum_lapor)})`;
+    items.push({
+      id: `pajak-${j.tahun}-${j.masa}-${j.kewajiban}`, tipe: 'pajak', tingkat: j.tingkat === 'lewat' ? 'bahaya' : 'peringatan',
+      judul: j.tingkat === 'lewat' ? `Terlambat ${-j.sisa_hari} hari: ${aksi}` : `${aksi}`,
+      pesan: `Jatuh tempo ${j.kewajiban} ${fmtTgl(j.tenggat)}${j.sisa_hari >= 0 ? ` (${j.sisa_hari === 0 ? 'hari ini' : `${j.sisa_hari} hari lagi`})` : ''}.${j.rincian ? ` ${j.rincian}` : ''}`,
+      link: '/pajak/register', tanggal: j.tenggat,
+    });
+  }
+
+  const { rows: [k] } = await query('SELECT COALESCE(MAX(bulan), 0)::int AS bulan FROM periode_kunci WHERE skpd_id = $1 AND tahun = $2', [skpd, tahun]);
+  const now = new Date();
+  const bulanSelesai = now.getFullYear() > tahun ? 12 : now.getFullYear() < tahun ? 0 : now.getMonth();
+  if (k.bulan < bulanSelesai) {
+    const belum = bulanSelesai - k.bulan;
+    items.push({ id: `tutup-${tahun}-${k.bulan + 1}`, tipe: 'tutup_buku', tingkat: belum > 1 ? 'peringatan' : 'info',
+      judul: `${belum} bulan belum ditutup buku`, pesan: `Periode ${NAMA_BULAN[k.bulan]}${belum > 1 ? ` s.d. ${NAMA_BULAN[bulanSelesai - 1]}` : ''} ${tahun} belum dikunci. Tutup buku setelah SPJ disahkan.`,
+      link: '/tutup-buku', tanggal: today });
+  }
+
+  const { rows: [v] } = await query(`SELECT COUNT(*) FILTER (WHERE v.status IS NULL)::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak
+    FROM bku_entries e LEFT JOIN LATERAL (SELECT status FROM bku_verifications WHERE entry_id = e.id ORDER BY verified_at DESC LIMIT 1) v ON true
+    WHERE e.skpd_id = $1 AND e.tahun = $2 AND NOT EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = e.id AND k.skpd_id = e.skpd_id)`, [skpd, tahun]);
+  if (v.ditolak && ['admin', 'bendahara'].includes(req.user.role)) {
+    items.push({ id: `ditolak-${v.ditolak}`, tipe: 'verifikasi', tingkat: 'bahaya', judul: `${v.ditolak} transaksi ditolak verifikator`,
+      pesan: 'Periksa catatan penolakan lalu buat jurnal koreksi bila perlu.', link: '/bku?verif=ditolak', tanggal: today });
+  }
+  if (v.belum && ['admin', 'verifikator'].includes(req.user.role)) {
+    items.push({ id: `verif-${v.belum}`, tipe: 'verifikasi', tingkat: 'info', judul: `${v.belum.toLocaleString('id-ID')} transaksi menunggu verifikasi`,
+      pesan: 'Buka BKU dengan filter "Belum diverifikasi".', link: '/bku?verif=belum', tanggal: today });
+  }
+
+  for (const fn of sumberNotifikasi) items.push(...(await fn({ user: req.user, skpd, tahun, today })));
+
+  const urut = { bahaya: 0, peringatan: 1, info: 2 };
+  items.sort((a, b) => urut[a.tingkat] - urut[b.tingkat]);
+  return items;
 }

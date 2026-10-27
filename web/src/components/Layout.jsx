@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Menu, X, LogOut, Radio, KeyRound, ChevronDown, Search, Sun, Moon, Monitor, LayoutDashboard, BookOpen, Plus, Receipt } from 'lucide-react';
+import { Menu, X, LogOut, Radio, KeyRound, BellRing, ChevronDown, Search, Sun, Moon, Monitor, LayoutDashboard, BookOpen, Plus, Receipt } from 'lucide-react';
 import { useApp, useLive } from '../lib/ctx.jsx';
 import { cx, useToast, Select } from './ui.jsx';
 import { ROLE, rp } from '../lib/format.js';
 import { NAV } from '../lib/nav.js';
 import GantiPassword from './GantiPassword.jsx';
+import ProfilPengingat from './ProfilPengingat.jsx';
 import NotifBell from './NotifBell.jsx';
 import CommandPalette from './CommandPalette.jsx';
 
@@ -17,7 +18,8 @@ const EVT_TEXT = {
   'periode.dibuka': (d) => `${d.user} membuka kunci periode ${d.bulan}/${d.tahun}`,
   'penerimaan.updated': (d) => (d.sts ? `${d.user} menyetor ${rp(d.total)} ke kas daerah (${d.sts})` : `${d.user} mencatat penerimaan ${rp(d.nilai)}`),
   'pembantu.updated': (d) => (d.spj ? `${d.user}: SPJ pembantu ${d.spj} ${d.status || 'diajukan'}` : `${d.user} memperbarui BKU bendahara pembantu`),
-  'spp.updated': (d) => `${d.user}: ${{ spp: 'SPP baru diajukan', spm: 'SPM diterbitkan', sp2d: 'SP2D dicatat dan dibukukan', ditolak: 'pengajuan SPP ditolak' }[d.status] || 'SPP diperbarui'}`,
+  'persetujuan.updated': (d) => `${d.user} ${d.setuju ? 'menyetujui' : 'menolak'} ${d.objek === 'spj' ? 'SPJ fungsional' : 'SPP'} pada tahap ${d.tahap}`,
+  'spp.updated': (d) => `${d.user}: ${{ spp: 'SPP baru diajukan', spm: 'SPM diterbitkan', sp2d: 'SP2D dicatat dan dibukukan', ditolak: 'pengajuan SPP ditolak', disetujui: 'SPP disetujui satu tahap' }[d.status] || 'SPP diperbarui'}`,
 };
 
 const THEMES = [
@@ -35,6 +37,7 @@ export default function Layout() {
   const { user, logout, skpdList, skpdId, setSkpdId, tahun, setTahun, live, can, theme, setTheme } = useApp();
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState(false);
+  const [kontak, setKontak] = useState(false);
   const [palette, setPalette] = useState(false);
   const [collapsed, setCollapsed] = useState(() => store.get('bku.nav.collapsed', {}));
   const loc = useLocation();
@@ -106,6 +109,7 @@ export default function Layout() {
             <p className="truncate text-xs font-semibold text-white">{user.full_name}</p>
             <p className="text-[11px] text-white/55">{ROLE[user.role]}</p>
           </div>
+          <button type="button" title="Pengingat WhatsApp & email" onClick={() => setKontak(true)} className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"><BellRing className="h-4 w-4" /></button>
           <button type="button" title="Ganti password" onClick={() => setPw(true)} className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"><KeyRound className="h-4 w-4" /></button>
           <button type="button" title="Keluar" onClick={logout} className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"><LogOut className="h-4 w-4" /></button>
         </div>
@@ -154,6 +158,7 @@ export default function Layout() {
       </div>
       <MobileNav onMenu={() => setOpen(true)} canWrite={can('admin', 'bendahara')} />
       <GantiPassword open={pw} onClose={() => setPw(false)} />
+      <ProfilPengingat open={kontak} onClose={() => setKontak(false)} />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>
   );

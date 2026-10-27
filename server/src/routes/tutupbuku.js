@@ -3,6 +3,8 @@ import { query, tx, audit, emit } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { bad, notFound, int, scopeSkpd, canWrite, required } from '../lib/http.js';
 import { NAMA_BULAN } from '../lib/kalender.js';
+import { statusSpj } from './persetujuan.js';
+import { getPengaturan } from '../lib/pengaturan.js';
 
 async function statusTahun(skpd, tahun) {
   const [{ rows: kunci }, { rows: bulanan }, { rows: penutupan }, { rows: pajak }] = await Promise.all([
@@ -19,6 +21,8 @@ async function statusTahun(skpd, tahun) {
     query(`SELECT masa AS bulan, SUM(nominal) FILTER (WHERE status = 'dipungut') AS belum_setor
       FROM pajak WHERE skpd_id = $1 AND tahun = $2 GROUP BY 1`, [skpd, tahun]),
   ]);
+  const [spj, cfg] = await Promise.all([statusSpj(skpd, tahun), getPengaturan()]);
+  const wajibSpj = Boolean(cfg.spj_wajib_disahkan);
   const terakhirKunci = Math.max(0, ...kunci.map((k) => k.bulan));
   const now = new Date();
   const bulanBerjalan = now.getFullYear() > tahun ? 13 : now.getFullYear() < tahun ? 0 : now.getMonth() + 1;
@@ -34,12 +38,14 @@ async function statusTahun(skpd, tahun) {
       ditolak: b?.ditolak || 0,
       penutupan_kas: pk?.jumlah || 0,
       pajak_belum_setor: Number(pj?.belum_setor || 0),
+      spj: spj[i].status,
     };
     return {
       bulan, nama: NAMA_BULAN[i], dikunci: Boolean(k), dikunci_at: k?.dikunci_at || null, oleh: k?.oleh || null, catatan: k?.catatan || null,
       ringkasan: k?.ringkasan || { penerimaan: Number(b?.penerimaan || 0), pengeluaran: Number(b?.pengeluaran || 0), transaksi: b?.transaksi || 0 },
       pemeriksaan,
-      siap: pemeriksaan.belum_verifikasi === 0 && pemeriksaan.ditolak === 0 && pemeriksaan.penutupan_kas > 0,
+      siap: pemeriksaan.belum_verifikasi === 0 && pemeriksaan.ditolak === 0 && pemeriksaan.penutupan_kas > 0 && (!wajibSpj || pemeriksaan.spj === 'disetujui'),
+      wajib_spj: wajibSpj,
       bisa_kunci: !k && bulan === terakhirKunci + 1 && bulan < bulanBerjalan,
       bisa_buka: Boolean(k) && bulan === terakhirKunci,
     };
@@ -64,6 +70,7 @@ export default async function tutupBukuRoutes(app) {
     if (!status) throw bad('Bulan tidak valid');
     if (status.dikunci) throw bad(`${status.nama} ${tahun} sudah ditutup`);
     if (!status.bisa_kunci) throw bad('Tutup buku harus berurutan dan hanya untuk bulan yang sudah berakhir. Tutup bulan sebelumnya terlebih dahulu.');
+    if (status.wajib_spj && status.pemeriksaan.spj !== 'disetujui') throw bad(`SPJ fungsional ${status.nama} ${tahun} belum disahkan melalui persetujuan berjenjang`);
     return tx(async (c) => {
       await c.query('LOCK TABLE periode_kunci IN SHARE ROW EXCLUSIVE MODE');
       const akhir = new Date(Date.UTC(tahun, bulan, 0)).toISOString().slice(0, 10);

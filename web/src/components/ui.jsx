@@ -269,8 +269,8 @@ export function ToastProvider({ children }) {
       <div className="no-print pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2">
         {items.map((t) => (
           <div key={t.id} className={cx('pointer-events-auto flex animate-fade-in items-start gap-2 rounded-xl border bg-surface px-3.5 py-3 text-sm shadow-lg',
-            t.tone === 'error' ? 'border-rose-200' : t.tone === 'info' ? 'border-brand-200' : 'border-emerald-200')}>
-            {t.tone === 'error' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" /> : t.tone === 'info' ? <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
+            t.tone === 'error' ? 'border-rose-200' : t.tone === 'warn' ? 'border-amber-200' : t.tone === 'info' ? 'border-brand-200' : 'border-emerald-200')}>
+            {t.tone === 'error' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" /> : t.tone === 'warn' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /> : t.tone === 'info' ? <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
             <span className="text-slate-700">{t.msg}</span>
           </div>
         ))}

@@ -10,6 +10,8 @@ import { insertEntries } from '../lib/ledger.js';
 import { insertPajak } from '../routes/pajak.js';
 import { catatPenerimaan, buatSts, batasSetor } from '../routes/penerimaan.js';
 import { limpahUp, belanjaPembantu, ajukanSpj, sahkanSpj } from '../routes/pembantu.js';
+import { POLA, bagiPola, tetapkanPerubahan } from '../routes/anggarankas.js';
+import { kandidatTransfer } from '../routes/transfer.js';
 import { potonganBelanja, pph21Bulanan, pph21HonorASN, pph21BukanPegawai } from '../../../shared/tax.js';
 
 let seed = 20260117;
@@ -381,6 +383,112 @@ async function seedTahunLalu({ skpdIds, userIds, rekananIds }) {
   console.log(`[seed] ${s.nama} TA ${T}: siap tutup tahun`);
 }
 
+async function seedTahap5({ TAHUN, lastMonth, lastDay, skpdIds, userIds }) {
+  const verif = userIds.verifikator; const pimp = userIds.pimpinan;
+  const jam = (tgl, h) => new Date(`${tgl}T${String(h).padStart(2, '0')}:15:00+07:00`).toISOString();
+  const tambahHari = (tgl, n) => { const d = new Date(`${tgl}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const tahap = async (objek, id, skpd, tahun, putaran, urutan, peran, label, status, oleh, waktu, catatan = null) => pool.query(
+    `INSERT INTO persetujuan (objek, objek_id, skpd_id, tahun, putaran, urutan, peran, label, status, oleh, waktu, catatan, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($11, now()))`, [objek, String(id), skpd, tahun, putaran, urutan, peran, label, status, oleh, waktu, catatan]);
+  const SPP = [['verifikator', 'Verifikasi PPK-SKPD'], ['pimpinan', 'Persetujuan PA/KPA']];
+  const SPJ = [['verifikator', 'Verifikasi PPK-SKPD'], ['pimpinan', 'Pengesahan PA/KPA']];
+  const alur = async (objek, id, skpd, tahun, tgl, status, catatan) => {
+    const L = objek === 'spp' ? SPP : SPJ;
+    // status: setuju (semua), tahap2 (verifikator setuju, pimpinan menunggu), menunggu (tahap 1), tolak (ditolak tahap 1)
+    if (status === 'setuju') { await tahap(objek, id, skpd, tahun, 1, 1, ...L[0], 'setuju', verif, jam(tgl, 9)); await tahap(objek, id, skpd, tahun, 1, 2, ...L[1], 'setuju', pimp, jam(tambahHari(tgl, 1), 10)); }
+    if (status === 'tahap2') { await tahap(objek, id, skpd, tahun, 1, 1, ...L[0], 'setuju', verif, jam(tgl, 9), 'Dokumen lengkap'); await tahap(objek, id, skpd, tahun, 1, 2, ...L[1], 'menunggu', null, null); }
+    if (status === 'menunggu') { await tahap(objek, id, skpd, tahun, 1, 1, ...L[0], 'menunggu', null, null); await tahap(objek, id, skpd, tahun, 1, 2, ...L[1], 'antre', null, null); }
+    if (status === 'tolak') { await tahap(objek, id, skpd, tahun, 1, 1, ...L[0], 'tolak', verif, jam(tgl, 11), catatan); await tahap(objek, id, skpd, tahun, 1, 2, ...L[1], 'batal', null, null); }
+  };
+
+  // ---- Persetujuan SPJ fungsional untuk bulan yang sudah ditutup buku ----
+  const { rows: kunci } = await pool.query('SELECT skpd_id, tahun, bulan, dikunci_at::date::text AS tgl FROM periode_kunci ORDER BY 1, 2, 3');
+  for (const k of kunci) await alur('spj', `${k.skpd_id}/${k.tahun}/${k.bulan}`, k.skpd_id, k.tahun, tambahHari(k.tgl, -3), 'setuju');
+  // BKAD: SPJ Agustus sudah diverifikasi, menunggu pengesahan PA/KPA
+  const bkad = skpdIds[0];
+  const { rows: [kb] } = await pool.query('SELECT COALESCE(MAX(bulan),0)::int AS b FROM periode_kunci WHERE skpd_id = $1 AND tahun = $2', [bkad, TAHUN]);
+  if (kb.b + 1 < lastMonth) await alur('spj', `${bkad}/${TAHUN}/${kb.b + 1}`, bkad, TAHUN, ymd(TAHUN, kb.b + 2, 5), 'tahap2');
+
+  // ---- Persetujuan SPP ----
+  const { rows: spp } = await pool.query('SELECT id, skpd_id, tahun, status, tanggal_spp::text AS tgl, catatan FROM spp ORDER BY id');
+  for (const r of spp) {
+    const st = { sp2d: 'setuju', spm: 'setuju', spp: 'menunggu', ditolak: 'tolak' }[r.status];
+    if (st) await alur('spp', r.id, r.skpd_id, r.tahun, tambahHari(r.tgl, 1), st, r.catatan);
+  }
+  // Satu SPP LS yang sudah lolos verifikasi dan menunggu persetujuan PA/KPA
+  const rek = (await pool.query('SELECT id FROM rekanan ORDER BY id')).rows.map((r) => r.id);
+  const { rows: [n] } = await pool.query("SELECT COUNT(*)::int + 1 AS n FROM spp WHERE skpd_id = $1 AND tahun = $2 AND jenis = 'LS_BARANG'", [bkad, TAHUN]);
+  const tglSpp = ymd(TAHUN, lastMonth, Math.max(1, lastDay - 4));
+  const { rows: [baru] } = await pool.query(`INSERT INTO spp (skpd_id, tahun, jenis, nomor_spp, tanggal_spp, uraian, nilai, kode_rekening, rekanan_id, status, created_by)
+    VALUES ($1,$2,'LS_BARANG',$3,$4,$5,$6,$7,$8,'spp',$9) RETURNING id`,
+  [bkad, TAHUN, `${String(n.n).padStart(4, '0')}/SPP-LS-BARANG/${SKPD[0].kode.slice(0, 4)}/${TAHUN}`, tglSpp, 'Pembayaran pemeliharaan kendaraan dinas operasional triwulan IV', 48_600_000, '5.1.02.03.02.0035', rek[7] || rek[0], userIds.bendahara]);
+  await alur('spp', baru.id, bkad, TAHUN, tambahHari(tglSpp, 1), 'tahap2');
+
+  // ---- Anggaran kas (rencana penarikan dana) seluruh SKPD tahun berjalan ----
+  for (const skpd of skpdIds) {
+    const { rows } = await pool.query('SELECT kode_rekening, pagu::float AS pagu FROM anggaran WHERE skpd_id = $1 AND tahun = $2', [skpd, TAHUN]);
+    for (const r of rows) {
+      const nilai = bagiPola(r.pagu, r.kode_rekening.startsWith('5.1.01') ? POLA.rata : POLA.triwulan);
+      await pool.query(`INSERT INTO anggaran_kas (skpd_id, tahun, kode_rekening, bulan, nilai) SELECT $1, $2, $3, b, v FROM unnest($4::numeric[]) WITH ORDINALITY AS t(v, b)`, [skpd, TAHUN, r.kode_rekening, nilai]);
+    }
+  }
+
+  // ---- Pergeseran anggaran (ditetapkan) dan rancangan APBD Perubahan (draf) di BKAD ----
+  const { rows: ang } = await pool.query(`SELECT a.kode_rekening, a.pagu::float AS pagu, COALESCE((SELECT SUM(pengeluaran - penerimaan) FROM bku_entries e
+      WHERE e.skpd_id = a.skpd_id AND e.tahun = a.tahun AND e.kode_rekening = a.kode_rekening AND e.jenis IN ('BELANJA','SP2D_LS','KOREKSI')), 0)::float AS real
+    FROM anggaran a WHERE a.skpd_id = $1 AND a.tahun = $2 AND a.kode_rekening LIKE '5.1.02%' ORDER BY a.pagu - COALESCE((SELECT SUM(pengeluaran - penerimaan) FROM bku_entries e
+      WHERE e.skpd_id = a.skpd_id AND e.tahun = a.tahun AND e.kode_rekening = a.kode_rekening AND e.jenis IN ('BELANJA','SP2D_LS','KOREKSI')), 0) DESC`, [bkad, TAHUN]);
+  if (ang.length >= 3) {
+    const [longgar, , ketat] = [ang[0], null, ang[ang.length - 1]];
+    const kurang = Math.ceil(Math.max(0, ketat.real - ketat.pagu) / 1_000_000) * 1_000_000;
+    const geser = Math.min(kurang + 25_000_000, Math.floor((longgar.pagu - longgar.real) / 2_000_000) * 1_000_000);
+    const admin = { id: userIds.admin, full_name: 'Administrator BKAD' };
+    await tx(async (c) => {
+      const rincian = [
+        { kode_rekening: longgar.kode_rekening, pagu_baru: longgar.pagu - geser, alasan: 'Efisiensi kegiatan' },
+        { kode_rekening: ketat.kode_rekening, pagu_baru: ketat.pagu + geser, alasan: 'Kebutuhan triwulan IV' },
+      ];
+      const { rows: [p] } = await c.query(`INSERT INTO perubahan_anggaran (skpd_id, tahun, nomor, jenis, tanggal, dasar, uraian, rincian, created_by)
+        VALUES ($1,$2,$3,'pergeseran',$4,$5,$6,$7,$8) RETURNING id`, [bkad, TAHUN, `001/PGS/${TAHUN}`, ymd(TAHUN, 7, 15),
+        'Peraturan Kepala Daerah tentang Perubahan Penjabaran APBD', 'Pergeseran antar-objek belanja barang dan jasa', JSON.stringify(rincian), admin.id]);
+      await tetapkanPerubahan(c, admin, p.id);
+      await c.query('UPDATE perubahan_anggaran SET ditetapkan_at = $2 WHERE id = $1', [p.id, jam(ymd(TAHUN, 7, 16), 10)]);
+      const { rows: [g] } = await c.query("SELECT pagu::float AS pagu FROM anggaran WHERE skpd_id = $1 AND tahun = $2 AND kode_rekening = '5.1.01.01.01.0001'", [bkad, TAHUN]);
+      if (g) {
+        await c.query(`INSERT INTO perubahan_anggaran (skpd_id, tahun, nomor, jenis, tanggal, dasar, uraian, rincian, created_by) VALUES ($1,$2,$3,'perubahan',$4,$5,$6,$7,$8)`,
+          [bkad, TAHUN, `001/APBD-P/${TAHUN}`, ymd(TAHUN, lastMonth, Math.max(1, lastDay - 2)), 'Rancangan Perda APBD Perubahan', 'Penyesuaian gaji dan tunjangan pasca kenaikan gaji pokok',
+            JSON.stringify([{ kode_rekening: '5.1.01.01.01.0001', pagu_lama: g.pagu, pagu_baru: g.pagu + 60_000_000, alasan: 'Kenaikan gaji pokok PNS' }]), admin.id]);
+      }
+    });
+  }
+
+  // ---- Kontak pengingat & rekening bendahara ----
+  const kontak = { admin: ['admin.bkad@contoh.go.id', null], bendahara: ['siti.rahmawati@contoh.go.id', '081234567801'], verifikator: ['yusuf.maulana@contoh.go.id', '081234567802'],
+    pimpinan: [null, '081234567803'], 'bendahara.disdik': ['rina.kartika@contoh.go.id', '081234567804'], 'bendahara.dinkes': [null, '081234567805'],
+    'bendahara.pupr': ['dewi.lestari@contoh.go.id', null], penerimaan: ['nur.aisyah@contoh.go.id', '081234567806'], pembantu: [null, '081234567807'] };
+  for (const [u, [email, wa]] of Object.entries(kontak)) await pool.query('UPDATE users SET email = $2, no_wa = $3 WHERE id = $1', [userIds[u], email, wa]);
+  for (const [i, skpd] of skpdIds.entries()) {
+    await pool.query('UPDATE skpd SET rekening_bendahara = $2, bank_bendahara = $3 WHERE id = $1', [skpd, `100200${String(3000001 + i * 1111)}`, 'Bank Daerah']);
+  }
+
+  // ---- Contoh berkas transfer massal yang sudah selesai (awal bulan berjalan) ----
+  const kandidat = (await kandidatTransfer(bkad, TAHUN, { dari: ymd(TAHUN, lastMonth, 1), sampai: ymd(TAHUN, lastMonth, Math.min(10, lastDay)) })).filter((k) => !k.masalah.length && k.nilai > 0);
+  if (kandidat.length >= 2) {
+    const pilih = kandidat.slice(0, 5);
+    const total = pilih.reduce((t, k) => t + k.nilai, 0);
+    const tgl = pilih.map((k) => k.tanggal).sort().pop();
+    const { rows: [b] } = await pool.query(`INSERT INTO transfer_batch (skpd_id, tahun, nomor, tanggal, format, rekening_sumber, total, jumlah, status, created_by, created_at, diunduh_at)
+      VALUES ($1,$2,$3,$4,'mandiri_mcm',$5,$6,$7,'selesai',$8,$9,$9) RETURNING id`,
+    [bkad, TAHUN, `TRF-001/${SKPD[0].kode.slice(0, 4)}/${TAHUN}`, tgl, '1002003000001', total, pilih.length, userIds.bendahara, jam(tgl, 14)]);
+    for (const [i, k] of pilih.entries()) {
+      await pool.query(`INSERT INTO transfer_item (batch_id, bku_entry_id, rekanan_id, nama, bank, kode_bank, no_rekening, bruto, potongan, nilai, berita, status, keterangan)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [b.id, k.id, k.rekanan_id, k.nama, k.bank, k.kode_bank, String(k.no_rekening).replace(/[\s.-]/g, ''),
+        k.bruto, k.potongan, k.nilai, `${k.no_bukti} ${k.uraian}`.slice(0, 120), i === 1 ? 'gagal' : 'berhasil', i === 1 ? 'Nama penerima tidak sesuai rekening' : null]);
+    }
+  }
+  console.log('[seed] Tahap 5: anggaran kas, persetujuan berjenjang, kontak pengingat, transfer massal');
+}
+
 async function main() {
   await migrate();
   const today = new Date();
@@ -392,6 +500,8 @@ async function main() {
     periode_kunci, spp, panjar, lampiran, rekonsiliasi_bank, dokumen_verifikasi RESTART IDENTITY CASCADE`);
   await pool.query('UPDATE users SET unit_id = NULL');
   await pool.query(`TRUNCATE spj_pembantu_rincian, spj_pembantu, bpp_entries, sts_rincian, sts, bkp_entries, target_pendapatan, subledger_head, tutup_tahun RESTART IDENTITY`);
+  await pool.query('TRUNCATE anggaran_kas, perubahan_anggaran, persetujuan, pengingat_log, transfer_item, transfer_batch RESTART IDENTITY');
+  await pool.query("DELETE FROM pengaturan WHERE kunci IN ('pengingat_terakhir', 'cadangan_terakhir')");
   await pool.query('DELETE FROM unit_kerja');
   await pool.query("SELECT setval(pg_get_serial_sequence('unit_kerja', 'id'), 1, false)");
   await pool.query('ALTER TABLE bku_entries DISABLE TRIGGER bku_immutable');
@@ -551,6 +661,7 @@ async function main() {
   await seedTahap4({ TAHUN, lastMonth, lastDay, skpdIds, userIds, rekananIds });
   await seedTahunLalu({ skpdIds, userIds, rekananIds });
   await seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
+  await seedTahap5({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
   // Mutasi bank contoh: salin transaksi bank September + 2 baris yang tidak ada di BKU (biaya admin & bunga)
   bankRows.push({ tanggal: '2026-09-30', ket: 'BIAYA ADMINISTRASI', debet: 15000, kredit: 0 }, { tanggal: '2026-09-30', ket: 'BUNGA JASA GIRO', debet: 0, kredit: 48250.37 });
   if (bankRows.length > 4) bankRows.splice(3, 1); // satu transaksi BKU sengaja tidak ada di bank

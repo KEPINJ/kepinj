@@ -17,7 +17,7 @@ export default function TutupBuku() {
   const { skpdId, tahun, can, skpd } = useApp();
   const toast = useToast();
   const { data, reload } = useLoad(() => skpdId && api.get('/api/tutup-buku', { skpd_id: skpdId, tahun }), [skpdId, tahun]);
-  useLive((e) => (e.type.startsWith('periode') || e.type.startsWith('bku')) && reload(), 800);
+  useLive((e) => (e.type.startsWith('periode') || e.type.startsWith('bku') || e.type === 'persetujuan.updated') && reload(), 800);
   const [aksi, setAksi] = useState(null);
   const [catatan, setCatatan] = useState('');
   const [busy, setBusy] = useState(false);
@@ -61,6 +61,7 @@ export default function TutupBuku() {
           <ul className="space-y-2 text-sm text-slate-600">
             <li className="flex gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Semua transaksi sudah diverifikasi dan tidak ada yang ditolak</li>
             <li className="flex gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Register penutupan kas akhir bulan sudah dibuat</li>
+            {data?.bulan[0]?.wajib_spj && <li className="flex gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />SPJ fungsional sudah disahkan berjenjang (PPK-SKPD lalu PA/KPA)</li>}
             <li className="flex gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />Pajak masa tersebut sebaiknya sudah disetor</li>
           </ul>
         </Card>
@@ -88,6 +89,7 @@ export default function TutupBuku() {
                   <Check ok={p.belum_verifikasi === 0} text={p.belum_verifikasi ? <Link className="underline" to="/bku?verif=belum">{p.belum_verifikasi} belum diverifikasi</Link> : 'Semua terverifikasi'} />
                   <Check ok={p.ditolak === 0} text={p.ditolak ? <Link className="underline" to="/bku?verif=ditolak">{p.ditolak} ditolak verifikator</Link> : 'Tidak ada yang ditolak'} />
                   <Check ok={p.penutupan_kas > 0} text={p.penutupan_kas ? 'Penutupan kas tercatat' : <Link className="underline" to="/penutupan-kas">Penutupan kas belum dibuat</Link>} />
+                  {b.wajib_spj && <Check ok={p.spj === 'disetujui'} text={p.spj === 'disetujui' ? 'SPJ fungsional disahkan' : <Link className="underline" to="/spj">{{ proses: 'SPJ dalam persetujuan', ditolak: 'SPJ ditolak, ajukan ulang' }[p.spj] || 'SPJ belum diajukan'}</Link>} />}
                   <Check ok={p.pajak_belum_setor === 0} warn text={p.pajak_belum_setor ? `Pajak belum setor ${compact(p.pajak_belum_setor)}` : 'Pajak masa ini disetor'} />
                 </ul>
               )}
@@ -119,7 +121,8 @@ export default function TutupBuku() {
                 <div><p className="text-xs text-slate-500">Penerimaan</p><p className="num font-semibold">{rp(aksi.bulan.ringkasan.penerimaan)}</p></div>
                 <div><p className="text-xs text-slate-500">Pengeluaran</p><p className="num font-semibold">{rp(aksi.bulan.ringkasan.pengeluaran)}</p></div>
               </div>
-              {!aksi.bulan.siap && <Alert tone="warn" title="Pemeriksaan belum lengkap">Masih ada transaksi belum diverifikasi/ditolak atau penutupan kas belum dibuat. Anda tetap dapat menutup buku bila sudah yakin.</Alert>}
+              {aksi.bulan.wajib_spj && aksi.bulan.pemeriksaan.spj !== 'disetujui' ? <Alert tone="error" title="SPJ fungsional belum disahkan">Ajukan pengesahan SPJ bulan ini di halaman SPJ Bendahara. Tutup buku dapat dilakukan setelah PA/KPA mengesahkan.</Alert>
+                : !aksi.bulan.siap && <Alert tone="warn" title="Pemeriksaan belum lengkap">Masih ada transaksi belum diverifikasi/ditolak atau penutupan kas belum dibuat. Anda tetap dapat menutup buku bila sudah yakin.</Alert>}
               <p className="text-sm text-slate-600">Setelah ditutup, transaksi bertanggal {aksi.bulan.nama} {tahun} tidak dapat ditambahkan. Hanya administrator yang dapat membuka kunci.</p>
               <Field label="Catatan (opsional)"><Textarea value={catatan} onChange={(e) => setCatatan(e.target.value)} placeholder="mis. SPJ fungsional disahkan PPKD tgl …" /></Field>
             </>) : (<>

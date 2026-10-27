@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { FileCheck2, Printer, Download } from 'lucide-react';
+import { FileCheck2, Printer, Download, Send, CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
 import { api, download } from '../lib/api.js';
 import { useApp, useLive } from '../lib/ctx.jsx';
-import { Alert, Button, Card, PageHeader, Select, Skeleton, Tabs, useLoad, useToast } from '../components/ui.jsx';
-import { BULAN, money as money2, num, tgl } from '../lib/format.js';
+import { Alert, Badge, Button, Card, PageHeader, Select, Skeleton, Tabs, cx, useLoad, useToast } from '../components/ui.jsx';
+import { AlurTahap, KeputusanModal, bolehPutuskan, tahapMenunggu } from '../components/Persetujuan.jsx';
+import { BULAN, BULAN_SINGKAT, money as money2, num, tgl } from '../lib/format.js';
 import { Ttd } from './PenutupanKas.jsx';
 import DocQr from '../components/DocQr.jsx';
 
@@ -35,6 +36,7 @@ export default function Spj() {
           <Button variant="secondary" icon={Download} onClick={() => download('/api/spj', { params: { skpd_id: skpdId, tahun, bulan, versi, format: 'xlsx' } }).catch((e) => toast(e.message, 'error'))}>Excel</Button>
           <Button icon={Printer} onClick={() => window.print()}>Cetak / PDF</Button>
         </>} />
+      <PengesahanSpj bulan={bulan} setBulan={setBulan} />
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <Tabs value={versi} onChange={setVersi} tabs={[{ value: 'fungsional', label: 'SPJ Fungsional (ke PPKD)' }, { value: 'administratif', label: 'SPJ Administratif (ke PA)' }]} />
         {d && <p className="text-xs text-slate-500">Realisasi s.d. {tgl(d.akhir, { long: true })}: <b className="num text-slate-700">Rp {money2(d.total.jumlah_sd)}</b> dari pagu Rp {money2(d.total.pagu)}</p>}
@@ -113,5 +115,60 @@ function Arus({ title, rows, arus, jumlah }) {
         <tr className="font-bold"><td className={c}>Jumlah {title.toLowerCase()}</td>{['lalu', 'ini', 'sd'].map((p) => <td key={p} className={`${c} text-right`}>{money(jumlah[p])}</td>)}</tr>
       </tbody>
     </table>
+  );
+}
+
+const ST = { tanpa: ['slate', 'Belum diajukan'], proses: ['amber', 'Dalam persetujuan'], disetujui: ['green', 'Disahkan'], ditolak: ['red', 'Ditolak'] };
+const DOT = { tanpa: 'bg-slate-200', proses: 'bg-amber-400', disetujui: 'bg-emerald-500', ditolak: 'bg-rose-500' };
+
+/** Pengesahan SPJ fungsional berjenjang: bendahara mengajukan, PPK-SKPD memverifikasi, PA/KPA mengesahkan. */
+function PengesahanSpj({ bulan, setBulan }) {
+  const { skpdId, tahun, can, user } = useApp();
+  const toast = useToast();
+  const [putus, setPutus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const { data, reload } = useLoad(() => skpdId && api.get('/api/spj/pengesahan', { skpd_id: skpdId, tahun }), [skpdId, tahun]);
+  useLive((e) => e.type === 'persetujuan.updated' && reload(), 500);
+  if (!data) return null;
+  const b = data.bulan[bulan - 1] || { status: 'tanpa', tahap: [] };
+  const tm = tahapMenunggu(b);
+  const now = new Date();
+  const lewat = tahun < now.getFullYear() || (tahun === now.getFullYear() && bulan <= now.getMonth() + 1);
+  const ajukan = async () => {
+    setBusy(true);
+    try { await api.post('/api/spj/ajukan', { skpd_id: skpdId, tahun, bulan }); toast(`SPJ ${BULAN[bulan - 1]} diajukan untuk pengesahan`); reload(); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const ditolak = b.tahap.find((t) => t.status === 'tolak');
+  return (
+    <div className="no-print card p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-brand-600" />
+            <p className="text-sm font-semibold text-slate-800">Pengesahan SPJ fungsional {BULAN[bulan - 1]} {tahun}</p>
+            <Badge color={ST[b.status][0]}>{ST[b.status][1]}</Badge>
+          </div>
+          {b.tahap.length > 0 ? <AlurTahap className="mt-2" tahap={b.tahap} /> : <p className="mt-1 text-xs text-slate-500">{data.wajib ? 'Tutup buku bulan ini mensyaratkan SPJ yang sudah disahkan berjenjang.' : 'Pengesahan berjenjang bersifat opsional.'}</p>}
+          {ditolak?.catatan && <p className="mt-1.5 text-xs text-rose-700">Ditolak {ditolak.label}: “{ditolak.catatan}”</p>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {tm && bolehPutuskan(user, tm) && (<>
+            <Button size="sm" variant="success" icon={CheckCircle2} onClick={() => setPutus({ tahap: tm, setuju: true, judul: `SPJ ${BULAN[bulan - 1]} ${tahun}` })}>Setujui</Button>
+            <Button size="sm" variant="secondary" icon={XCircle} onClick={() => setPutus({ tahap: tm, setuju: false, judul: `SPJ ${BULAN[bulan - 1]} ${tahun}` })}>Tolak</Button>
+          </>)}
+          {tm && !bolehPutuskan(user, tm) && <span className="text-xs text-amber-700">Menunggu {tm.label}</span>}
+          {['tanpa', 'ditolak'].includes(b.status) && can('admin', 'bendahara') && lewat && <Button size="sm" icon={Send} loading={busy} onClick={ajukan}>{b.status === 'ditolak' ? 'Ajukan ulang' : 'Ajukan pengesahan'}</Button>}
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-12 gap-1 border-t border-slate-100 pt-3">
+        {data.bulan.map((x) => (
+          <button key={x.bulan} type="button" onClick={() => setBulan(x.bulan)} title={`${BULAN[x.bulan - 1]}: ${ST[x.status][1]}`}
+            className={cx('flex flex-col items-center gap-1 rounded-lg py-1 text-[10px] text-slate-500 hover:bg-slate-50', x.bulan === bulan && 'bg-brand-50 font-semibold text-brand-700')}>
+            <span className={cx('h-1.5 w-full max-w-[28px] rounded-full', DOT[x.status])} />{BULAN_SINGKAT[x.bulan - 1]}
+          </button>
+        ))}
+      </div>
+      <KeputusanModal aksi={putus} onClose={() => setPutus(null)} onDone={(r, ok) => { toast(ok ? (r.status === 'disetujui' ? 'SPJ disahkan. Bulan ini siap ditutup buku.' : 'Disetujui, diteruskan ke PA/KPA') : 'SPJ ditolak dan dikembalikan ke bendahara'); reload(); }} />
+    </div>
   );
 }

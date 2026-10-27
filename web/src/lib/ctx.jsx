@@ -3,7 +3,7 @@ import { api } from './api.js';
 
 const AppCtx = createContext(null);
 export const EVENT_TYPES = ['bku.entry.created', 'bku.verified', 'pajak.created', 'pajak.disetor', 'periode.dikunci', 'periode.dibuka',
-  'spp.updated', 'panjar.updated', 'lampiran.updated', 'penerimaan.updated', 'pembantu.updated'];
+  'spp.updated', 'panjar.updated', 'lampiran.updated', 'penerimaan.updated', 'pembantu.updated', 'persetujuan.updated'];
 export const useApp = () => useContext(AppCtx);
 
 const store = {

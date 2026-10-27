@@ -9,4 +9,8 @@ export const config = {
   webDist: process.env.WEB_DIST || new URL('../../web/dist', import.meta.url).pathname,
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 50),
   isProd: process.env.NODE_ENV === 'production',
+  // Folder berkas cadangan basis data (sebaiknya di luar folder publik dan ikut dicadangkan ke media lain)
+  backupDir: process.env.BACKUP_DIR || new URL('../backups', import.meta.url).pathname,
+  // Matikan penjadwal (pengingat & pencadangan otomatis), mis. saat menjalankan beberapa instans
+  scheduler: process.env.SCHEDULER !== 'off',
 };

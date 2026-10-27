@@ -27,11 +27,12 @@ export default function Pengguna() {
       <Card bodyClass="overflow-x-auto">
         {loading ? <Loading /> : (
           <table className="w-full min-w-[700px] text-sm">
-            <thead><tr><th className="th">Username</th><th className="th">Nama</th><th className="th">Peran</th><th className="th">SKPD</th><th className="th">Login terakhir</th><th className="th">Status</th><th className="th" /></tr></thead>
+            <thead><tr><th className="th">Username</th><th className="th">Nama</th><th className="th">Peran</th><th className="th">SKPD</th><th className="th">Kontak pengingat</th><th className="th">Login terakhir</th><th className="th">Status</th><th className="th" /></tr></thead>
             <tbody>{data.rows.map((u) => (
               <tr key={u.id} className="hover:bg-slate-50">
                 <td className="td font-mono text-xs">{u.username}</td><td className="td">{u.full_name}</td><td className="td"><Badge color="blue">{ROLE[u.role]}</Badge></td>
-                <td className="td text-xs">{u.skpd_kode || '-'}{u.unit_nama && <p className="text-[11px] text-slate-500">{u.unit_nama}</p>}</td><td className="td text-xs">{waktu(u.last_login_at)}</td>
+                <td className="td text-xs">{u.skpd_kode || '-'}{u.unit_nama && <p className="text-[11px] text-slate-500">{u.unit_nama}</p>}</td>
+                <td className="td text-[11px] text-slate-600">{u.email && <p>{u.email}</p>}{u.no_wa && <p className="font-mono">{u.no_wa}</p>}{!u.email && !u.no_wa && <span className="text-slate-400">-</span>}</td><td className="td text-xs">{waktu(u.last_login_at)}</td>
                 <td className="td">{u.active ? <Badge color="green">Aktif</Badge> : <Badge>Nonaktif</Badge>}</td>
                 <td className="td"><button type="button" className="p-1 text-slate-400 hover:text-brand-700" onClick={() => setEdit({ ...u, password: '' })} aria-label="Ubah"><Pencil className="h-4 w-4" /></button></td>
               </tr>))}</tbody>
@@ -46,6 +47,10 @@ export default function Pengguna() {
             <Field label="Peran"><Select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })} options={Object.entries(ROLE).map(([value, label]) => ({ value, label }))} /></Field>
             <Field label="SKPD"><Select value={edit.skpd_id || ''} onChange={(e) => setEdit({ ...edit, skpd_id: e.target.value })} placeholder="—" options={skpdList.map((s) => ({ value: s.id, label: s.nama }))} /></Field>
             {pembantu && <Field label="Unit kerja" hint="Bendahara pembantu hanya dapat mencatat di BKU unit ini"><Select value={edit.unit_id || ''} onChange={(e) => setEdit({ ...edit, unit_id: e.target.value })} placeholder={units.length ? 'Pilih unit kerja' : 'Belum ada unit kerja di SKPD ini'} options={units.map((u) => ({ value: u.id, label: `${u.kode} · ${u.nama}` }))} /></Field>}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Email pengingat"><Input type="email" value={edit.email || ''} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="opsional" /></Field>
+              <Field label="WhatsApp"><Input value={edit.no_wa || ''} onChange={(e) => setEdit({ ...edit, no_wa: e.target.value })} placeholder="08…" /></Field>
+            </div>
             <Field label={edit.id ? 'Password baru (kosongkan bila tidak diganti)' : 'Password'} hint="Minimal 8 karakter"><Input type="password" value={edit.password || ''} onChange={(e) => setEdit({ ...edit, password: e.target.value })} /></Field>
             {edit.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} />Akun aktif</label>}
           </div>

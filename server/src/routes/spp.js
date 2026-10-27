@@ -5,6 +5,8 @@ import { bad, notFound, int, isDate, money, scopeSkpd, canWrite, required } from
 import { insertEntries } from '../lib/ledger.js';
 import { getPengaturan } from '../lib/pengaturan.js';
 import { daftarNotifikasi } from '../lib/notifikasi.js';
+import { buatAlur, statusAlur, statusBanyak } from './persetujuan.js';
+import { cekAnggaranKas } from './anggarankas.js';
 
 export const JENIS_SPP = { UP: 'Uang Persediaan', GU: 'Ganti Uang', TU: 'Tambahan Uang', LS_GAJI: 'LS Gaji & Tunjangan', LS_BARANG: 'LS Barang & Jasa' };
 const KODE_UP = '0.0.00.00.00.0001';
@@ -64,6 +66,8 @@ export default async function sppRoutes(app) {
         WHERE s.skpd_id = $1 AND s.tahun = $2 ORDER BY s.tanggal_spp DESC, s.id DESC`, [skpd, tahun]),
       statusUp(skpd, tahun),
     ]);
+    const alur = await statusBanyak('spp', rows.map((r) => r.id));
+    for (const r of rows) r.persetujuan = alur[r.id] || null;
     const ringkasan = {};
     for (const r of rows) {
       ringkasan[r.status] = ringkasan[r.status] || { jumlah: 0, nilai: 0 };
@@ -93,9 +97,11 @@ export default async function sppRoutes(app) {
       const { rows: [r] } = await c.query(`INSERT INTO spp (skpd_id, tahun, jenis, nomor_spp, tanggal_spp, uraian, nilai, kode_rekening, rekanan_id, catatan, created_by)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [skpd, tahun, b.jenis, nomor, b.tanggal_spp, String(b.uraian).slice(0, 500), nilai, b.kode_rekening || null, b.rekanan_id || null, b.catatan || null, req.user.id]);
+      const tahap = await buatAlur(c, 'spp', r.id, skpd, tahun);
+      const peringatan = b.kode_rekening && b.jenis.startsWith('LS') ? await cekAnggaranKas(c, skpd, b.kode_rekening, b.tanggal_spp, nilai) : null;
       await audit(c, req.user, 'spp_ajukan', 'spp', r.id, { nomor, jenis: b.jenis, nilai }, req.ip);
       await emit(c, 'spp.updated', String(skpd), { skpd_id: skpd, id: r.id, status: 'spp', user: req.user.full_name });
-      return { row: r };
+      return { row: r, tahap, peringatan };
     });
   });
 
@@ -108,6 +114,8 @@ export default async function sppRoutes(app) {
       let r;
       if (status === 'spm') {
         if (s.status !== 'spp') throw bad('SPM hanya dapat diterbitkan untuk SPP yang sedang diajukan');
+        const alur = await statusAlur(c, 'spp', s.id);
+        if (alur.status === 'proses') throw bad(`SPP belum disetujui berjenjang: menunggu ${alur.tahap.find((t) => t.status === 'menunggu')?.label || 'persetujuan'}`);
         const tgl = isDate(b.tanggal_spm) ? b.tanggal_spm : null;
         if (!tgl) throw bad('Tanggal SPM tidak valid');
         if (tgl < s.tanggal_spp) throw bad('Tanggal SPM tidak boleh sebelum tanggal SPP');
@@ -117,6 +125,7 @@ export default async function sppRoutes(app) {
         if (!['spp', 'spm'].includes(s.status)) throw bad('Pengajuan ini tidak dapat ditolak');
         if (!b.catatan) throw bad('Alasan penolakan wajib diisi');
         ({ rows: [r] } = await c.query("UPDATE spp SET status = 'ditolak', catatan = $2, updated_at = now() WHERE id = $1 RETURNING *", [s.id, b.catatan]));
+        await c.query("UPDATE persetujuan SET status = 'batal' WHERE objek = 'spp' AND objek_id = $1 AND status IN ('antre','menunggu')", [String(s.id)]);
       } else if (status === 'sp2d') {
         canWrite(req.user, s.skpd_id);
         if (s.status !== 'spm') throw bad('SP2D dicatat setelah SPM terbit');

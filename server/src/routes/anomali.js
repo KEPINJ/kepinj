@@ -2,7 +2,7 @@
 import { query, tx, audit } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { bad, int, isDate, money, scopeSkpd } from '../lib/http.js';
-import { getPengaturan } from '../lib/pengaturan.js';
+import { getPengaturan, pengaturanPublik } from '../lib/pengaturan.js';
 import { daftarNotifikasi } from '../lib/notifikasi.js';
 import { daftarJatuhTempo } from './pengingat.js';
 
@@ -126,7 +126,7 @@ export default async function anomaliRoutes(app) {
     return { rows };
   });
 
-  app.get('/api/pengaturan', { preHandler: requireAuth }, async () => getPengaturan());
+  app.get('/api/pengaturan', { preHandler: requireAuth }, async () => pengaturanPublik());
   app.put('/api/pengaturan', { preHandler: requireRole('admin') }, async (req) => {
     const allowed = ['batas_kas_tunai', 'batas_transaksi_tunai', 'ambang_pagu_persen', 'ambang_gu_persen', 'batas_hari_panjar'];
     const changes = Object.entries(req.body || {}).filter(([k, v]) => allowed.includes(k) && Number.isFinite(Number(v)) && Number(v) >= 0);
@@ -134,7 +134,7 @@ export default async function anomaliRoutes(app) {
     return tx(async (c) => {
       for (const [k, v] of changes) await c.query('INSERT INTO pengaturan (kunci, nilai, updated_at) VALUES ($1, $2, now()) ON CONFLICT (kunci) DO UPDATE SET nilai = EXCLUDED.nilai, updated_at = now()', [k, JSON.stringify(Number(v))]);
       await audit(c, req.user, 'pengaturan_ubah', 'pengaturan', null, Object.fromEntries(changes), req.ip);
-      return getPengaturan();
+      return pengaturanPublik();
     });
   });
 }

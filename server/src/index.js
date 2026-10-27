@@ -26,6 +26,11 @@ import pimpinanRoutes from './routes/pimpinan.js';
 import penerimaanRoutes from './routes/penerimaan.js';
 import pembantuRoutes from './routes/pembantu.js';
 import tutupTahunRoutes from './routes/tutuptahun.js';
+import anggaranKasRoutes from './routes/anggarankas.js';
+import persetujuanRoutes from './routes/persetujuan.js';
+import pengingatLuarRoutes, { mulaiPenjadwal } from './routes/pengingatluar.js';
+import transferRoutes from './routes/transfer.js';
+import cadanganRoutes from './routes/cadangan.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -55,7 +60,8 @@ export async function buildApp() {
 
   authRoutes(app);
   for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes, spjRoutes, anomaliRoutes,
-    sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes]) await app.register(r);
+    sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes,
+    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });
@@ -73,7 +79,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildApp();
   const stopEvents = await startEventPipeline(app.log);
   await app.listen({ port: config.port, host: config.host });
+  const stopJadwal = config.scheduler ? mulaiPenjadwal(app.log) : () => {};
   const shutdown = async () => {
+    stopJadwal();
     await app.close();
     await stopEvents();
     await pool.end();

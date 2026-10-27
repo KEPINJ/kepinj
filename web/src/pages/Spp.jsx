@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FileStack, Plus, Stamp, Banknote, XCircle, Check, Clock, Wallet, RefreshCw, Ban } from 'lucide-react';
+import { FileStack, Plus, Stamp, Banknote, XCircle, Check, Clock, Wallet, RefreshCw, Ban, CheckCircle2 } from 'lucide-react';
 import { terbilang } from '@shared/terbilang.js';
 import { api } from '../lib/api.js';
 import { useApp, useLive } from '../lib/ctx.jsx';
 import { Alert, Badge, Button, Card, Combo, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, SkeletonRows, Stat, Tabs, Textarea, cx, useLoad, useToast } from '../components/ui.jsx';
 import { rp, tgl, today } from '../lib/format.js';
+import { AlurTahap, KeputusanModal, bolehPutuskan, tahapMenunggu } from '../components/Persetujuan.jsx';
 
 const JENIS_WARNA = { UP: 'blue', GU: 'green', TU: 'amber', LS_GAJI: 'violet', LS_BARANG: 'slate' };
 const STATUS = { spp: ['amber', 'Diajukan'], spm: ['blue', 'SPM terbit'], sp2d: ['green', 'SP2D cair'], ditolak: ['red', 'Ditolak'] };
@@ -34,14 +35,15 @@ function Stepper({ s }) {
 }
 
 export default function Spp() {
-  const { skpdId, tahun, can } = useApp();
+  const { skpdId, tahun, can, user } = useApp();
   const toast = useToast();
   const [sp, setSp] = useSearchParams();
   const [tab, setTab] = useState('semua');
+  const [putus, setPutus] = useState(null);
   const [baru, setBaru] = useState(null);
   const [aksi, setAksi] = useState(null);
   const { data, loading, reload } = useLoad(() => skpdId && api.get('/api/spp', { skpd_id: skpdId, tahun }), [skpdId, tahun]);
-  useLive((e) => (e.type === 'spp.updated' || e.type.startsWith('bku')) && reload(), 800);
+  useLive((e) => (e.type === 'spp.updated' || e.type === 'persetujuan.updated' || e.type.startsWith('bku')) && reload(), 800);
 
   useEffect(() => {
     if (sp.get('baru') && data) { setBaru(sp.get('baru')); setSp({}, { replace: true }); }
@@ -110,15 +112,29 @@ export default function Spp() {
                     {tgl(s.tanggal_spp)}{s.kode_rekening && ` · ${s.kode_rekening} ${s.rekening_nama || ''}`}{s.rekanan_nama && ` · ${s.rekanan_nama}`}
                     {s.nomor_sp2d && ` · SP2D ${s.nomor_sp2d} (${tgl(s.tanggal_sp2d)})`}
                   </p>
+                  {s.persetujuan?.tahap?.length > 0 && s.status !== 'sp2d' && <AlurTahap className="mt-1.5" tahap={s.persetujuan.tahap} />}
                   {s.status === 'ditolak' && s.catatan && <p className="mt-1 text-[11px] text-rose-700">Alasan ditolak: {s.catatan}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 lg:justify-end">
                   <Stepper s={s} />
                   <p className="num w-36 text-right text-sm font-semibold text-slate-900">{rp(s.nilai)}</p>
-                  <div className="flex gap-1.5 lg:w-48 lg:justify-end">
-                    {s.status === 'spp' && can('admin', 'verifikator', 'pimpinan') && <Button size="sm" icon={Stamp} onClick={() => setAksi({ tipe: 'spm', s })}>Terbitkan SPM</Button>}
-                    {s.status === 'spm' && can('admin', 'bendahara') && <Button size="sm" variant="success" icon={Banknote} onClick={() => setAksi({ tipe: 'sp2d', s })}>Catat SP2D</Button>}
-                    {['spp', 'spm'].includes(s.status) && can('admin', 'verifikator', 'pimpinan') && <Button size="sm" variant="ghost" icon={XCircle} onClick={() => setAksi({ tipe: 'tolak', s })} aria-label="Tolak" />}
+                  <div className="flex items-center gap-1.5 lg:w-52 lg:justify-end">
+                    {(() => {
+                      const tm = s.status === 'spp' ? tahapMenunggu(s.persetujuan) : null;
+                      const info = { judul: s.nomor_spp, sub: rp(s.nilai) };
+                      if (tm && bolehPutuskan(user, tm)) {
+                        return (<>
+                          <Button size="sm" variant="success" icon={CheckCircle2} onClick={() => setPutus({ tahap: tm, setuju: true, ...info })}>Setujui</Button>
+                          <Button size="sm" variant="ghost" icon={XCircle} onClick={() => setPutus({ tahap: tm, setuju: false, ...info })} aria-label="Tolak" />
+                        </>);
+                      }
+                      if (tm) return <span className="text-right text-[11px] leading-tight text-amber-700">Menunggu<br />{tm.label}</span>;
+                      return (<>
+                        {s.status === 'spp' && can('admin', 'verifikator', 'pimpinan') && <Button size="sm" icon={Stamp} onClick={() => setAksi({ tipe: 'spm', s })}>Terbitkan SPM</Button>}
+                        {s.status === 'spm' && can('admin', 'bendahara') && <Button size="sm" variant="success" icon={Banknote} onClick={() => setAksi({ tipe: 'sp2d', s })}>Catat SP2D</Button>}
+                        {['spp', 'spm'].includes(s.status) && can('admin', 'verifikator', 'pimpinan') && <Button size="sm" variant="ghost" icon={XCircle} onClick={() => setAksi({ tipe: 'tolak', s })} aria-label="Tolak" />}
+                      </>);
+                    })()}
                   </div>
                 </div>
               </div>
@@ -127,7 +143,13 @@ export default function Spp() {
         )}
       </Card>
 
-      <FormSpp jenisAwal={baru} up={up} jenisList={data?.jenis || {}} onClose={() => setBaru(null)} onSaved={(r) => { toast(`${r.nomor_spp} diajukan. Menunggu penerbitan SPM.`); reload(); }} />
+      <FormSpp jenisAwal={baru} up={up} jenisList={data?.jenis || {}} onClose={() => setBaru(null)} onSaved={(r) => {
+        const tm = r.tahap?.find((t) => t.status === 'menunggu');
+        toast(`${r.row.nomor_spp} diajukan. ${tm ? `Menunggu ${tm.label}.` : 'Menunggu penerbitan SPM.'}`);
+        if (r.peringatan) toast(r.peringatan, 'warn');
+        reload();
+      }} />
+      <KeputusanModal aksi={putus} onClose={() => setPutus(null)} onDone={(r, ok) => { toast(ok ? (r.status === 'disetujui' ? 'SPP disetujui seluruh tahap. SPM dapat diterbitkan.' : 'Disetujui, diteruskan ke tahap berikutnya') : 'SPP ditolak dan dikembalikan ke bendahara'); reload(); }} />
       <AksiSpp aksi={aksi} onClose={() => setAksi(null)} onDone={(msg) => { toast(msg); setAksi(null); reload(); }} />
     </div>
   );
@@ -153,7 +175,7 @@ function FormSpp({ jenisAwal, up, jenisList, onClose, onSaved }) {
     setBusy(true); setErr('');
     try {
       const r = await api.post('/api/spp', { ...f, skpd_id: skpdId, kode_rekening: f.kode_rekening || null, rekanan_id: f.rekanan_id || null });
-      onSaved(r.row); onClose();
+      onSaved(r); onClose();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   return (

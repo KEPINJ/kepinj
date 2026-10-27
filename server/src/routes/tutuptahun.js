@@ -4,6 +4,7 @@ import { query, tx, audit, emit } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { bad, int, isDate, scopeSkpd, canWrite, required } from '../lib/http.js';
 import { insertEntries, JENIS_BKU } from '../lib/ledger.js';
+import { statusAlur } from './persetujuan.js';
 
 const rupiah = (v) => `Rp ${Math.round(Number(v)).toLocaleString('id-ID')}`;
 
@@ -32,6 +33,7 @@ export async function periksaTahun(skpd, tahun, c = { query: (...a) => query(...
     saldoPerMetode(c, skpd, tahun),
     c.query('SELECT t.*, u.full_name AS oleh FROM tutup_tahun t LEFT JOIN users u ON u.id = t.ditutup_oleh WHERE t.skpd_id = $1 AND t.tahun = $2', [skpd, tahun]),
   ]);
+  const spjDes = await statusAlur(c, 'spj', `${skpd}/${tahun}/12`);
   const cek = (kode, judul, ok, detail, { wajib = true, link = null, aksi = null } = {}) => ({ kode, judul, status: ok ? 'ok' : wajib ? 'gagal' : 'peringatan', wajib, detail, link, aksi });
   const daftar = [
     cek('tutup_buku', 'Tutup buku Januari s.d. November', k.n >= 11, k.n >= 11 ? 'Seluruh bulan sebelum Desember sudah dikunci' : `${k.n} dari 11 bulan sudah ditutup buku`, { link: '/tutup-buku' }),
@@ -43,6 +45,7 @@ export async function periksaTahun(skpd, tahun, c = { query: (...a) => query(...
       !u.bersaldo && !u.diajukan && !u.belum_spj ? 'Semua unit kerja nihil' : [u.belum_spj && `${u.belum_spj} belanja belum di-SPJ-kan`, u.diajukan && `${u.diajukan} SPJ menunggu pengesahan`, u.bersaldo && `${u.bersaldo} unit masih memegang kas ${rupiah(u.saldo)}`].filter(Boolean).join(', '), { link: '/pembantu' }),
     cek('penerimaan', 'Penerimaan sudah disetor ke kas daerah', !t.n, t.n ? `${t.n} penerimaan senilai ${rupiah(t.nilai)} belum dibuatkan STS` : 'Saldo bendahara penerimaan nihil', { link: '/penerimaan?tab=sts' }),
     cek('spp', 'Tidak ada SPP/SPM yang menggantung', !s.n, s.n ? `${s.n} pengajuan senilai ${rupiah(s.nilai)} belum menjadi SP2D` : 'Semua pengajuan sudah selesai', { wajib: false, link: '/spp' }),
+    cek('spj_desember', 'SPJ fungsional Desember disahkan', spjDes.status === 'disetujui', { disetujui: 'Sudah disahkan PA/KPA', proses: 'Sedang dalam proses persetujuan', ditolak: 'Ditolak, perlu diajukan ulang', tanpa: 'Belum diajukan' }[spjDes.status], { wajib: false, link: '/spj' }),
     cek('penutupan_kas', 'Register penutupan kas Desember', pk.n > 0, pk.n ? 'Sudah dibuat' : 'Belum ada berita acara penutupan kas Desember', { wajib: false, link: '/penutupan-kas' }),
     cek('sisa_up', 'Sisa UP disetor ke kas daerah', Math.abs(saldo.total) < 0.01, Math.abs(saldo.total) < 0.01 ? 'Saldo kas bendahara nihil'
       : `Saldo ${rupiah(saldo.total)} (bank ${rupiah(saldo.bank)}, tunai ${rupiah(saldo.tunai)}). Bila tidak disetor, dibawa sebagai saldo awal TA ${tahun + 1}.`, { wajib: false, aksi: Math.abs(saldo.total) >= 0.01 && !p.n ? 'setor_sisa' : null }),
