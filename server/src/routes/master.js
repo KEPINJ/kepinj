@@ -85,7 +85,7 @@ export default async function masterRoutes(app) {
 
   // Pengguna
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
-    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, u.active, u.last_login_at, s.kode AS skpd_kode FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id ORDER BY u.username');
+    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, u.unit_id, u.email, u.no_wa, u.active, u.last_login_at, s.kode AS skpd_kode, k.nama AS unit_nama FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id LEFT JOIN unit_kerja k ON k.id = u.unit_id ORDER BY u.username');
     return { rows };
   });
   app.post('/api/users', { preHandler: requireRole('admin') }, async (req) => {
@@ -94,15 +94,15 @@ export default async function masterRoutes(app) {
     return tx(async (c) => {
       let r;
       if (b.id) {
-        ({ rows: [r] } = await c.query('UPDATE users SET full_name = $2, role = $3, skpd_id = $4, active = $5 WHERE id = $1 RETURNING id, username, full_name, role, skpd_id, active', [b.id, b.full_name, b.role, clean(b.skpd_id), b.active !== false]));
+        ({ rows: [r] } = await c.query('UPDATE users SET full_name = $2, role = $3, skpd_id = $4, active = $5, unit_id = $6, email = $7, no_wa = $8 WHERE id = $1 RETURNING id, username, full_name, role, skpd_id, unit_id, email, no_wa, active', [b.id, b.full_name, b.role, clean(b.skpd_id), b.active !== false, b.role === 'bendahara_pembantu' ? clean(b.unit_id) ?? null : null, clean(b.email) ?? null, clean(b.no_wa) ?? null]));
         if (b.password) {
           if (String(b.password).length < 8) throw bad('Password minimal 8 karakter');
           await c.query('UPDATE users SET password_hash = $2 WHERE id = $1', [b.id, await hashPassword(b.password)]);
         }
       } else {
         if (!b.password || String(b.password).length < 8) throw bad('Password minimal 8 karakter');
-        ({ rows: [r] } = await c.query('INSERT INTO users (username, full_name, password_hash, role, skpd_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, username, full_name, role, skpd_id, active',
-          [String(b.username).toLowerCase().trim(), b.full_name, await hashPassword(b.password), b.role, clean(b.skpd_id)]));
+        ({ rows: [r] } = await c.query('INSERT INTO users (username, full_name, password_hash, role, skpd_id, unit_id, email, no_wa) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, username, full_name, role, skpd_id, unit_id, email, no_wa, active',
+          [String(b.username).toLowerCase().trim(), b.full_name, await hashPassword(b.password), b.role, clean(b.skpd_id), b.role === 'bendahara_pembantu' ? clean(b.unit_id) ?? null : null, clean(b.email) ?? null, clean(b.no_wa) ?? null]));
       }
       await audit(c, req.user, b.id ? 'user_ubah' : 'user_tambah', 'user', r.id, { username: r.username, role: r.role }, req.ip);
       return { row: r };

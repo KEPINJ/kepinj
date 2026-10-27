@@ -2,6 +2,7 @@
 import { GENESIS, chainHash } from './hash.js';
 import { emit } from '../db.js';
 import { bad, isDate, money } from './http.js';
+import { NAMA_BULAN } from './kalender.js';
 
 export const JENIS_BKU = {
   SALDO_AWAL: 'Saldo awal', SP2D_UP: 'SP2D UP', SP2D_GU: 'SP2D GU', SP2D_TU: 'SP2D TU', SP2D_LS: 'SP2D LS',
@@ -57,6 +58,14 @@ export async function insertEntries(client, user, skpdId, rawEntries) {
     const known = new Set(rows.map((r) => r.kode));
     const unknown = kode.filter((k) => !known.has(k));
     if (unknown.length) throw bad(`Kode rekening tidak terdaftar: ${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ', …' : ''}`);
+  }
+
+  // Tutup buku: tolak lebih awal dengan pesan yang jelas (trigger database tetap menjadi pengaman akhir)
+  const periode = [...new Set(entries.map((e) => Number(e.tanggal.slice(0, 4)) * 100 + Number(e.tanggal.slice(5, 7))))];
+  const { rows: kunci } = await client.query('SELECT tahun, bulan FROM periode_kunci WHERE skpd_id = $1 AND tahun * 100 + bulan = ANY($2) ORDER BY 1, 2', [skpdId, periode]);
+  if (kunci.length) {
+    const label = kunci.map((k) => `${NAMA_BULAN[k.bulan - 1]} ${k.tahun}`).join(', ');
+    throw bad(`Periode ${label} sudah ditutup buku. Gunakan tanggal pada bulan yang masih terbuka (mis. untuk jurnal koreksi), atau minta administrator membuka kunci.`);
   }
 
   const saved = [];

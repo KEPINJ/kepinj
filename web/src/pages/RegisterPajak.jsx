@@ -5,6 +5,7 @@ import { useApp, useLive } from '../lib/ctx.jsx';
 import { Alert, Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, SearchInput, Select, useLoad, useToast, Empty, cx } from '../components/ui.jsx';
 import { BULAN, JENIS_PAJAK, rp, money, tgl, today } from '../lib/format.js';
 import { STATUS_PTKP } from '@shared/tax.js';
+import JatuhTempoPajak from '../components/JatuhTempoPajak.jsx';
 
 const STATUS = { dipungut: ['amber', 'Dipungut'], disetor: ['blue', 'Disetor'], dilaporkan: ['green', 'Dilaporkan'] };
 
@@ -44,6 +45,7 @@ export default function RegisterPajak() {
           ))}
         </div>
       )}
+      <JatuhTempoPajak onPick={(j) => { setF({ ...f, masa: j.tahun === tahun ? j.masa : '', status: j.kewajiban === 'setor' ? 'dipungut' : 'disetor' }); setSel(new Set()); }} />
       <Card bodyClass="">
         <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">
           <SearchInput className="min-w-[200px] flex-1" value={f.q} onChange={upd('q')} placeholder="Cari nama, NPWP, no. dokumen…" />

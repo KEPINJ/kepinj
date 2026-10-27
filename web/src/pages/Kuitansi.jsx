@@ -3,6 +3,7 @@ import { Printer } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { Button, Loading, useLoad } from '../components/ui.jsx';
 import { money, tgl, JENIS_PAJAK } from '../lib/format.js';
+import DocQr from '../components/DocQr.jsx';
 
 export default function Kuitansi() {
   const { id } = useParams();
@@ -12,7 +13,7 @@ export default function Kuitansi() {
   const nilai = Number(e.pengeluaran) || Number(e.penerimaan);
   const potongan = pajak.reduce((a, p) => a + Number(p.nominal), 0);
   return (
-    <div className="min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
+    <div className="theme-light min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
       <style>{'@media print { @page { size: A4 portrait; margin: 15mm; } }'}</style>
       <div className="no-print mx-auto mb-4 flex max-w-[800px] justify-end px-4"><Button icon={Printer} onClick={() => window.print()}>Cetak kuitansi</Button></div>
       <div className="print-area mx-auto max-w-[800px] bg-white p-10 text-[13px] text-black shadow-lg">
@@ -40,7 +41,10 @@ export default function Kuitansi() {
           <div><p>Lunas dibayar,</p><p>Bendahara Pengeluaran</p><div className="h-16" /><p className="font-semibold underline">{s.bendahara_nama}</p><p>NIP. {s.bendahara_nip}</p></div>
           <div><p>{tgl(e.tanggal, { long: true })}</p><p>Yang menerima,</p><div className="h-16" /><p className="font-semibold underline">{e.rekanan_nama || '……………………'}</p></div>
         </div>
-        <p className="mt-8 break-all text-[9px] text-slate-500">Segel integritas BKU: {e.hash}</p>
+        <div className="mt-8 flex items-end justify-between gap-4">
+          <p className="break-all text-[9px] text-slate-500">Segel integritas BKU: {e.hash}</p>
+          <DocQr jenis="kuitansi" skpdId={e.skpd_id} parameter={{ entry_id: e.id }} />
+        </div>
       </div>
     </div>
   );

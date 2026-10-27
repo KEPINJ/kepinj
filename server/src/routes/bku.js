@@ -1,6 +1,7 @@
 import { query, tx, audit, emit, pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { insertEntries, verifyChain, JENIS_BKU } from '../lib/ledger.js';
+import { verifySub } from '../lib/subledger.js';
 import { bad, notFound, int, isDate, money, scopeSkpd, canWrite, sendFile, XLSX, required } from '../lib/http.js';
 import { buildWorkbook } from '../lib/excel.js';
 import { terbilang } from '../../../shared/terbilang.js';
@@ -50,6 +51,7 @@ async function listEntries(user, q, { all = false } = {}) {
     SELECT b.*, r.nama AS rekening_nama, rk.nama AS rekanan_nama, u.full_name AS dibuat_oleh,
            v.status AS verif_status, v.catatan AS verif_catatan,
            EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = b.id AND k.skpd_id = b.skpd_id AND k.tahun = b.tahun) AS dikoreksi,
+           (SELECT COUNT(*) FROM lampiran l WHERE l.bku_entry_id = b.id)::int AS jumlah_lampiran,
            COUNT(*) OVER () AS total_rows
       FROM base b
       LEFT JOIN rekening r ON r.kode = b.kode_rekening
@@ -116,6 +118,10 @@ export default async function bkuRoutes(app) {
     const client = await pool.connect();
     try {
       const res = await verifyChain(client, skpd, tahun);
+      // Buku pembantu (BKU penerimaan & BKU bendahara pembantu) punya rantai hash sendiri
+      const { rows: units } = await client.query('SELECT id, nama FROM unit_kerja WHERE skpd_id = $1 ORDER BY kode', [skpd]);
+      res.buku_pembantu = [{ nama: 'BKU Bendahara Penerimaan', ...(await verifySub(client, 'bkp', skpd, tahun)) },
+        ...(await Promise.all(units.map(async (u) => ({ nama: `BKU Pembantu ${u.nama}`, ...(await verifySub(client, 'bpp', u.id, tahun)) }))))].filter((b) => b.jumlah);
       await audit(client, req.user, 'verifikasi_integritas', 'bku', `${skpd}/${tahun}`, { valid: res.valid, jumlah: res.jumlah_entri }, req.ip);
       return res;
     } finally { client.release(); }

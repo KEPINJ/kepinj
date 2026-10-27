@@ -14,6 +14,23 @@ import dataRoutes from './routes/data.js';
 import laporanRoutes from './routes/laporan.js';
 import masterRoutes from './routes/master.js';
 import systemRoutes from './routes/system.js';
+import tutupBukuRoutes from './routes/tutupbuku.js';
+import pengingatRoutes from './routes/pengingat.js';
+import spjRoutes from './routes/spj.js';
+import anomaliRoutes from './routes/anomali.js';
+import sppRoutes from './routes/spp.js';
+import panjarRoutes from './routes/panjar.js';
+import lampiranRoutes from './routes/lampiran.js';
+import dokumenRoutes from './routes/dokumen.js';
+import pimpinanRoutes from './routes/pimpinan.js';
+import penerimaanRoutes from './routes/penerimaan.js';
+import pembantuRoutes from './routes/pembantu.js';
+import tutupTahunRoutes from './routes/tutuptahun.js';
+import anggaranKasRoutes from './routes/anggarankas.js';
+import persetujuanRoutes from './routes/persetujuan.js';
+import pengingatLuarRoutes, { mulaiPenjadwal } from './routes/pengingatluar.js';
+import transferRoutes from './routes/transfer.js';
+import cadanganRoutes from './routes/cadangan.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -42,7 +59,9 @@ export async function buildApp() {
   });
 
   authRoutes(app);
-  for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes]) await app.register(r);
+  for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes, spjRoutes, anomaliRoutes,
+    sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes,
+    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });
@@ -60,7 +79,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildApp();
   const stopEvents = await startEventPipeline(app.log);
   await app.listen({ port: config.port, host: config.host });
+  const stopJadwal = config.scheduler ? mulaiPenjadwal(app.log) : () => {};
   const shutdown = async () => {
+    stopJadwal();
     await app.close();
     await stopEvents();
     await pool.end();

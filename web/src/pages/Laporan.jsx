@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Printer, BookOpen, Download, Receipt, BarChart3, Wallet } from 'lucide-react';
+import { Printer, BookOpen, Download, Receipt, BarChart3, Wallet, FileCheck2, BookCopy } from 'lucide-react';
 import { download } from '../lib/api.js';
 import { useApp } from '../lib/ctx.jsx';
 import { Button, Card, Field, PageHeader, Select, useToast } from '../components/ui.jsx';
@@ -16,6 +16,10 @@ export default function Laporan() {
       actions: <><Link to={`/cetak/bku?bulan=${bulan}`} target="_blank"><Button size="sm" icon={Printer}>Cetak / PDF</Button></Link><Button size="sm" variant="secondary" icon={Download} onClick={() => download('/api/bku/export.xlsx', { params: { skpd_id: skpdId, tahun, bulan } }).catch(err)}>Excel</Button></> },
     { icon: BookOpen, title: 'Buku Kas Umum setahun', text: 'Seluruh transaksi tahun anggaran berjalan.',
       actions: <><Link to="/cetak/bku" target="_blank"><Button size="sm" icon={Printer}>Cetak / PDF</Button></Link><Button size="sm" variant="secondary" icon={Download} onClick={() => download('/api/bku/export.xlsx', { params: { skpd_id: skpdId, tahun } }).catch(err)}>Excel</Button></> },
+    { icon: FileCheck2, title: 'SPJ bendahara pengeluaran', text: 'Laporan pertanggungjawaban fungsional & administratif per bulan, terisi otomatis dari BKU.',
+      actions: <Link to="/spj"><Button size="sm" icon={Printer}>Buka SPJ</Button></Link> },
+    { icon: BookCopy, title: 'Buku pembantu', text: 'Kas tunai, simpanan/bank, rincian objek belanja dan UP/GU/TU.',
+      actions: <Link to="/buku-pembantu"><Button size="sm" variant="secondary">Buka</Button></Link> },
     { icon: Receipt, title: 'Buku pembantu pajak', text: 'Register pajak pungut/setor per masa, dengan NTPN.',
       actions: <Button size="sm" variant="secondary" icon={Download} onClick={() => download('/api/pajak/coretax/export', { params: { skpd_id: skpdId, tahun, masa: bulan, form: 'ALL', format: 'xlsx' } }).catch(err)}>Excel masa {BULAN[bulan - 1]}</Button> },
     { icon: BarChart3, title: 'Laporan realisasi anggaran', text: 'Pagu, realisasi, sisa dan persentase per kode rekening.',
