@@ -1,6 +1,9 @@
 import { query } from '../db.js';
 
+import { ATURAN_DOKUMEN } from '../../../shared/dokumen.js';
+
 const ALUR = {
+  alur_bku: [{ peran: 'verifikator', label: 'Verifikasi PPK-SKPD' }, { peran: 'pimpinan', label: 'Persetujuan PA/KPA' }],
   alur_spp: [{ peran: 'verifikator', label: 'Verifikasi PPK-SKPD' }, { peran: 'pimpinan', label: 'Persetujuan PA/KPA' }],
   alur_spj: [{ peran: 'verifikator', label: 'Verifikasi PPK-SKPD' }, { peran: 'pimpinan', label: 'Pengesahan PA/KPA' }],
 };
@@ -11,6 +14,15 @@ const DEFAULT = {
   smtp_host: '', smtp_port: 587, smtp_secure: false, smtp_user: '', smtp_pass: '', smtp_from: '',
   wa_penyedia: 'fonnte', wa_url: 'https://api.fonnte.com/send', wa_token: '',
   cadangan_aktif: true, cadangan_jam: '23:30', cadangan_simpan: 14,
+  // Persetujuan berjenjang transaksi BKU & dokumen bukti
+  alur_bku_aktif: true, bku_ambang_pimpinan: 10_000_000, persetujuan_wajib_dokumen: true,
+  aturan_dokumen: ATURAN_DOKUMEN, lampiran_maks_mb: 5,
+  // Rekonsiliasi & monitoring anggaran
+  rekon_toleransi_hari: 3, rekon_toleransi_selisih_persen: 5, ambang_serapan_rendah: 20,
+  // Keamanan
+  login_maks_gagal: 5, login_kunci_menit: 15, sesi_idle_menit: 30, sesi_maks_jam: 12,
+  password_min: 8, password_kedaluwarsa_hari: 90, password_riwayat: 3,
+  uji_pulih_aktif: true, uji_pulih_hari: 7,
 };
 export const RAHASIA = ['smtp_pass', 'wa_token'];
 

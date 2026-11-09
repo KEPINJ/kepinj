@@ -12,6 +12,10 @@ import { catatPenerimaan, buatSts, batasSetor } from '../routes/penerimaan.js';
 import { limpahUp, belanjaPembantu, ajukanSpj, sahkanSpj } from '../routes/pembantu.js';
 import { POLA, bagiPola, tetapkanPerubahan } from '../routes/anggarankas.js';
 import { kandidatTransfer } from '../routes/transfer.js';
+import { hitungKelengkapan, lengkapiKelengkapan } from '../lib/statusbku.js';
+import { postingJurnal } from '../routes/akuntansi.js';
+import { JENIS_DOKUMEN } from '../../../shared/dokumen.js';
+import { daftarAset } from '../routes/aset.js';
 import { potonganBelanja, pph21Bulanan, pph21HonorASN, pph21BukanPegawai } from '../../../shared/tax.js';
 
 let seed = 20260117;
@@ -370,7 +374,6 @@ async function seedTahunLalu({ skpdIds, userIds, rekananIds }) {
     }
   }
   for (const [kode, total] of Object.entries(perRek)) await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, T, kode, round(total * (1.04 + rnd() * 0.12), 1_000_000)]);
-  await pool.query(`INSERT INTO bku_verifications (entry_id, status, verified_by) SELECT id, 'diverifikasi', $3 FROM bku_entries WHERE skpd_id = $1 AND tahun = $2`, [skpd, T, userIds.verifikator]);
   for (let b = 1; b <= 11; b++) {
     const akhir = ymd(T, b, new Date(T, b, 0).getDate());
     const { rows: [r] } = await pool.query(`SELECT COALESCE(SUM(penerimaan) FILTER (WHERE EXTRACT(MONTH FROM tanggal) = $3), 0)::float AS penerimaan,
@@ -489,6 +492,143 @@ async function seedTahap5({ TAHUN, lastMonth, lastDay, skpdIds, userIds }) {
   console.log('[seed] Tahap 5: anggaran kas, persetujuan berjenjang, kontak pengingat, transfer massal');
 }
 
+
+/**
+ * Tahap 6: lampirkan dokumen bukti untuk entri yang belum lengkap sampai tanggal tertentu.
+ * porsi = peluang satu entri dilengkapi; sisanya dibiarkan kurang agar fitur kelengkapan dapat diperagakan.
+ */
+async function lampirkanBukti(skpd, tahun, sebelum, userId, porsi = 1) {
+  const { rows } = await pool.query(`SELECT e.id, e.no_bukti, e.tanggal, e.uraian, e.penerimaan, e.pengeluaran, s.dokumen_kurang
+    FROM bku_entries e JOIN bku_status s ON s.entry_id = e.id
+    WHERE e.skpd_id = $1 AND e.tahun = $2 AND e.tanggal < $3 AND s.dokumen_status IN ('belum','sebagian')`, [skpd, tahun, sebelum]);
+  const L = { entry: [], nama: [], jenis: [], data: [], nomor: [], tgl: [] };
+  for (const e of rows) {
+    if (rnd() > porsi) continue;
+    for (const j of e.dokumen_kurang || []) {
+      const label = JENIS_DOKUMEN[j]?.label || j;
+      const nilai = Number(e.pengeluaran) || Number(e.penerimaan);
+      L.entry.push(e.id); L.jenis.push(j); L.nomor.push(e.no_bukti); L.tgl.push(e.tanggal);
+      L.nama.push(`${j.replace(/_/g, '-')}-${String(e.no_bukti).replace(/[^A-Za-z0-9-]/g, '')}.pdf`);
+      L.data.push(pdfNota([label.toUpperCase(), '', `Nomor   : ${e.no_bukti}`, `Tanggal : ${e.tanggal}`, `Uraian  : ${e.uraian.slice(0, 55)}`, `Nilai   : Rp ${nilai.toLocaleString('id-ID')}`]));
+    }
+  }
+  for (let i = 0; i < L.entry.length; i += 1000) {
+    const sl = (a) => a.slice(i, i + 1000);
+    await pool.query(`WITH x AS (INSERT INTO lampiran (bku_entry_id, skpd_id, nama_file, mime, ukuran, sha256, data, uploaded_by, jenis_dokumen, nomor_dokumen, tanggal_dokumen, created_at)
+        SELECT q.e, $1, q.n, 'application/pdf', length(q.d), encode(sha256(q.d), 'hex'), q.d, $2, q.j, q.no, q.t, q.t::timestamp + interval '10 hour'
+        FROM unnest($3::bigint[], $4::text[], $5::bytea[], $6::text[], $7::text[], $8::date[]) AS q(e, n, d, j, no, t)
+        RETURNING id, bku_entry_id, nama_file, jenis_dokumen, created_at)
+      INSERT INTO lampiran_riwayat (lampiran_id, bku_entry_id, skpd_id, aksi, nama_file, jenis_dokumen, oleh, waktu)
+      SELECT id, bku_entry_id, $1, 'unggah', nama_file, jenis_dokumen, $2, created_at FROM x`,
+    [skpd, userId, sl(L.entry), sl(L.nama), sl(L.data), sl(L.jenis), sl(L.nomor), sl(L.tgl)]);
+  }
+  await tx((c) => hitungKelengkapan(c, [...new Set(L.entry)]));
+  return L.entry.length;
+}
+
+/**
+ * Tahap 6: setujui berjenjang semua entri sebelum tanggal tertentu (verifikator lalu pimpinan sesuai ambang).
+ * Entri yang dokumennya belum lengkap ditolak dengan catatan, sesuai aturan "persetujuan wajib dokumen lengkap".
+ */
+async function setujuiSampai(skpd, tahun, sebelum, userIds) {
+  const tolak = await pool.query(`WITH t AS (SELECT s.entry_id FROM bku_status s JOIN bku_entries e ON e.id = s.entry_id
+      WHERE e.skpd_id = $1 AND e.tahun = $2 AND e.tanggal < $3 AND s.status = 'menunggu' AND s.induk_id IS NULL AND s.dokumen_status IN ('belum','sebagian')),
+    p1 AS (UPDATE persetujuan p SET status = CASE WHEN p.status = 'menunggu' THEN 'tolak' ELSE 'batal' END,
+        catatan = CASE WHEN p.status = 'menunggu' THEN 'Bukti pendukung belum lengkap, mohon dilengkapi lalu ajukan ulang' END,
+        oleh = CASE WHEN p.status = 'menunggu' THEN $4::int END, waktu = CASE WHEN p.status = 'menunggu' THEN now() END
+      FROM t WHERE p.objek = 'bku' AND p.objek_id = t.entry_id::text AND p.status IN ('menunggu','antre'))
+    UPDATE bku_status s SET status = 'ditolak', tahap = NULL, peran_menunggu = NULL, catatan = 'Bukti pendukung belum lengkap, mohon dilengkapi lalu ajukan ulang', diperbarui_at = now()
+    FROM t WHERE s.entry_id = t.entry_id OR s.induk_id = t.entry_id`, [skpd, tahun, sebelum, userIds.verifikator]);
+  await pool.query(`UPDATE persetujuan p SET status = 'setuju', oleh = CASE WHEN p.peran = 'pimpinan' THEN $4::int ELSE $5::int END,
+      waktu = e.created_at + (p.urutan || ' hour')::interval, catatan = CASE WHEN p.peran = 'pimpinan' THEN 'Disetujui sesuai kewenangan PA/KPA' ELSE 'Bukti lengkap dan sah' END
+    FROM bku_entries e WHERE p.objek = 'bku' AND p.objek_id = e.id::text AND e.skpd_id = $1 AND e.tahun = $2 AND e.tanggal < $3 AND p.status IN ('menunggu','antre')`,
+  [skpd, tahun, sebelum, userIds.pimpinan, userIds.verifikator]);
+  const ok = await pool.query(`UPDATE bku_status s SET status = 'disetujui', tahap = NULL, peran_menunggu = NULL, disetujui_at = e.created_at + interval '2 hour', diperbarui_at = now()
+    FROM bku_entries e WHERE s.entry_id = e.id AND e.skpd_id = $1 AND e.tahun = $2 AND e.tanggal < $3 AND s.status = 'menunggu'`, [skpd, tahun, sebelum]);
+  return { disetujui: ok.rowCount, ditolak: tolak.rowCount };
+}
+
+/** Tahap 6: dokumen bukti, persetujuan berjenjang, dan jurnal otomatis untuk data demo. */
+async function seedTahap6({ TAHUN, lastMonth, skpdIds, userIds }) {
+  const cutoff = ymd(TAHUN, Math.max(1, lastMonth - 1), 1);    // sampai 2 bulan lalu: sudah diproses
+  const bulanIni = ymd(TAHUN, lastMonth, 1);
+  for (const [si, skpd] of skpdIds.entries()) {
+    const pengunggah = userIds[['bendahara', 'bendahara.disdik', 'bendahara.dinkes', 'bendahara.pupr'][si]] || userIds.bendahara;
+    const n1 = await lampirkanBukti(skpd, TAHUN, cutoff, pengunggah, 0.985);
+    const n2 = await lampirkanBukti(skpd, TAHUN, bulanIni, pengunggah, 0.7);   // bulan lalu: sebagian sudah diunggah
+    await lampirkanBukti(skpd, TAHUN - 1, `${TAHUN}-01-01`, pengunggah, 1);
+    const r = await setujuiSampai(skpd, TAHUN, cutoff, userIds);
+    await setujuiSampai(skpd, TAHUN - 1, `${TAHUN}-01-01`, userIds);
+    const hasil = await tx((c) => postingJurnal(c, { id: userIds.verifikator, full_name: 'Verifikator' }, skpd, TAHUN, new Date(Date.parse(cutoff) - 86400000).toISOString().slice(0, 10)));
+    console.log(`[seed] Tahap 6 SKPD ${skpd}: ${n1 + n2} dokumen, ${r.disetujui} disetujui, ${r.ditolak} ditolak, ${hasil.dibuat} jurnal (${hasil.telaah} perlu telaah)`);
+  }
+  await tx((c) => lengkapiKelengkapan(c, { semua: true }));
+}
+
+/** Tahap 7: aset ber-QR (sebagian dari belanja modal BKU) dan satu inventarisasi yang sedang berjalan. */
+async function seedTahap7({ TAHUN, skpdIds, userIds }) {
+  const LOKASI = ['Gedung A Lt.1 - Ruang Kepala Badan', 'Gedung A Lt.1 - Ruang Sekretariat', 'Gedung A Lt.2 - Bidang Anggaran', 'Gedung A Lt.2 - Bidang Perbendaharaan',
+    'Gedung B Lt.1 - Bidang Akuntansi', 'Gedung B Lt.1 - Bidang Aset', 'Gedung B Lt.2 - Ruang Server', 'Gedung B Lt.2 - Ruang Rapat', 'Garasi Kantor'];
+  const PJ = ['Rina Marlina, S.E.', 'Budi Santoso, S.Kom.', 'Dewi Lestari, S.Ak.', 'Hendra Gunawan, A.Md.', 'Sri Wahyuni, S.E.'];
+  const BARANG = [
+    ['1.3.02.06.02.0002', 'Laptop', ['Lenovo ThinkPad E14', 'ASUS ExpertBook B1', 'HP ProBook 440'], [11_500_000, 17_000_000], 14],
+    ['1.3.02.06.02.0001', 'Komputer PC', ['Dell OptiPlex 3000', 'HP ProDesk 400 G9', 'Lenovo ThinkCentre M70'], [9_000_000, 14_000_000], 12],
+    ['1.3.02.06.03.0001', 'Printer', ['Epson L3250', 'Canon PIXMA G3020', 'HP LaserJet M211'], [2_400_000, 4_800_000], 8],
+    ['1.3.02.06.03.0005', 'Scanner', ['Epson DS-530 II', 'Fujitsu fi-8170'], [6_500_000, 14_000_000], 3],
+    ['1.3.02.05.02.0010', 'AC Split 1 PK', ['Daikin FTKC25', 'Panasonic CS-PU9'], [4_200_000, 6_100_000], 9],
+    ['1.3.02.05.02.0001', 'Meja kerja', ['Meja 1/2 biro', 'Meja kerja L'], [1_400_000, 2_600_000], 16],
+    ['1.3.02.05.02.0002', 'Kursi kerja', ['Kursi putar Chitose', 'Kursi staf Indachi'], [850_000, 1_700_000], 18],
+    ['1.3.02.05.02.0006', 'Lemari arsip besi', ['Lemari 4 laci Brother', 'Filing cabinet Lion'], [2_900_000, 4_300_000], 7],
+    ['1.3.02.05.03.0001', 'Proyektor', ['Epson EB-X51', 'BenQ MX560'], [6_800_000, 9_000_000], 3],
+    ['1.3.02.06.04.0001', 'Server & switch jaringan', ['Dell PowerEdge T150', 'Cisco CBS350-24'], [24_000_000, 48_000_000], 2],
+    ['1.3.02.01.01.0001', 'Kendaraan dinas roda 4', ['Toyota Innova 2.0 G', 'Mitsubishi Xpander'], [310_000_000, 380_000_000], 2],
+    ['1.3.02.01.01.0004', 'Sepeda motor dinas', ['Honda Supra X 125', 'Yamaha NMAX'], [19_000_000, 31_000_000], 4],
+  ];
+  const skpd = skpdIds[0];
+  const user = { id: userIds.bendahara };
+  const pilih = (a) => a[Math.floor(rnd() * a.length)];
+  const kondisiAcak = (tahun) => { const umur = TAHUN - tahun; const x = rnd(); return x < 0.04 + umur * 0.025 ? 'RB' : x < 0.12 + umur * 0.05 ? 'RR' : 'B'; };
+  let n = 0;
+  await tx(async (c) => {
+    for (const [kode, nama, merk, [lo, hi], jml] of BARANG) {
+      for (let i = 0; i < jml; i++) {
+        const tahun = TAHUN - Math.floor(rnd() * 7);
+        const [a] = await daftarAset(c, user, skpd, { kode_barang: kode, nama, merk_tipe: pilih(merk), spesifikasi: null, nomor_seri: `SN${Math.floor(rnd() * 1e9).toString(36).toUpperCase()}`,
+          tahun_perolehan: tahun, tanggal_perolehan: ymd(tahun, 1 + Math.floor(rnd() * 11), 1 + Math.floor(rnd() * 27)), harga_perolehan: round(lo + rnd() * (hi - lo), 50_000),
+          sumber_dana: 'APBD', cara_perolehan: rnd() < 0.08 ? 'hibah' : 'pembelian', lokasi: kode.startsWith('1.3.02.01') ? 'Garasi Kantor' : pilih(LOKASI.slice(0, 8)),
+          penanggung_jawab: pilih(PJ), kondisi: kondisiAcak(tahun), keterangan: null });
+        n++;
+        if (rnd() < 0.55) await c.query("UPDATE aset SET terakhir_diperiksa = make_date($2, 12, 15)::timestamptz WHERE id = $1", [a.id, TAHUN - 1]);
+      }
+    }
+    // Aset dari belanja modal BKU tahun berjalan (tautan perbendaharaan → aset)
+    const { rows: modal } = await c.query(`SELECT e.id, e.tanggal, e.uraian, e.kode_rekening, e.pengeluaran FROM bku_entries e JOIN bku_status s ON s.entry_id = e.id
+      WHERE e.skpd_id = $1 AND e.tahun = $2 AND e.jenis = 'BELANJA' AND e.kode_rekening LIKE '5.2.02%' AND s.status = 'disetujui' ORDER BY e.tanggal LIMIT 3`, [skpd, TAHUN]);
+    for (const e of modal) {
+      const unit = Math.max(1, Math.min(8, Math.round(Number(e.pengeluaran) / 13_500_000)));
+      await daftarAset(c, user, skpd, { kode_barang: '1.3.02.06.02.0001', nama: 'Komputer PC', merk_tipe: 'HP ProDesk 400 G9', spesifikasi: 'Core i5, RAM 16 GB, SSD 512 GB', nomor_seri: null,
+        tahun_perolehan: TAHUN, tanggal_perolehan: e.tanggal, harga_perolehan: Math.round((Number(e.pengeluaran) / unit) * 100) / 100, sumber_dana: 'APBD', cara_perolehan: 'pembelian',
+        lokasi: 'Gedung A Lt.2 - Bidang Anggaran', penanggung_jawab: 'Budi Santoso, S.Kom.', kondisi: 'B', keterangan: `Dari BKU: ${e.uraian.slice(0, 80)}` }, unit, e.id);
+      n += unit;
+    }
+    // Inventarisasi semester II yang sedang berjalan: ±60% aset sudah dipindai
+    const { rows: [inv] } = await c.query(`INSERT INTO inventarisasi (skpd_id, nama, tanggal_mulai, catatan, dibuat_oleh) VALUES ($1, $2, current_date - 6, $3, $4) RETURNING id`,
+      [skpd, `Inventarisasi fisik semester II ${TAHUN}`, 'Pemeriksaan fisik seluruh BMD per ruangan dengan pemindaian QR', userIds.bendahara]);
+    const { rows: semua } = await c.query("SELECT id, lokasi, kondisi FROM aset WHERE skpd_id = $1 AND status = 'aktif' ORDER BY id", [skpd]);
+    for (const a of semua) {
+      if (rnd() > 0.6) continue;
+      const pindah = rnd() < 0.06;
+      const kondisi = a.kondisi === 'B' && rnd() < 0.05 ? 'RR' : a.kondisi;
+      const lokasi = pindah ? pilih(LOKASI.filter((l) => l !== a.lokasi)) : a.lokasi;
+      await c.query(`INSERT INTO aset_pemeriksaan (aset_id, inventarisasi_id, kondisi, lokasi, sesuai_lokasi, catatan, cara, oleh, waktu)
+        VALUES ($1,$2,$3,$4,$5,$6,'qr',$7, now() - ($8 || ' hours')::interval)`, [a.id, inv.id, kondisi, lokasi, !pindah, pindah ? 'Ditemukan di ruangan lain' : kondisi !== a.kondisi ? 'Layar bergaris / perlu servis' : null,
+        userIds.bendahara, String(Math.floor(rnd() * 140))]);
+      await c.query('UPDATE aset SET kondisi = $2, terakhir_diperiksa = now() - interval \'1 day\' WHERE id = $1', [a.id, kondisi]);
+    }
+  });
+  console.log(`[seed] Tahap 7: ${n} aset ber-QR, 1 inventarisasi berjalan`);
+}
+
 async function main() {
   await migrate();
   const today = new Date();
@@ -497,7 +637,8 @@ async function main() {
   const lastDay = today.getFullYear() === TAHUN ? today.getDate() : 31;
 
   await pool.query(`TRUNCATE bku_verifications, pajak, bku_chain_head, daily_summary, outbox, penutupan_kas, dataset_rows, datasets, pipelines, anggaran, pegawai,
-    periode_kunci, spp, panjar, lampiran, rekonsiliasi_bank, dokumen_verifikasi RESTART IDENTITY CASCADE`);
+    periode_kunci, spp, panjar, lampiran, lampiran_riwayat, rekonsiliasi_bank, dokumen_verifikasi, bku_status, jurnal_rinci, jurnal, notifikasi, notifikasi_baca,
+    sesi, audit_data, uji_pemulihan, password_riwayat, aset_pemeriksaan, inventarisasi, aset, asisten_log RESTART IDENTITY CASCADE`);
   await pool.query('UPDATE users SET unit_id = NULL');
   await pool.query(`TRUNCATE spj_pembantu_rincian, spj_pembantu, bpp_entries, sts_rincian, sts, bkp_entries, target_pendapatan, subledger_head, tutup_tahun RESTART IDENTITY`);
   await pool.query('TRUNCATE anggaran_kas, perubahan_anggaran, persetujuan, pengingat_log, transfer_item, transfer_batch RESTART IDENTITY');
@@ -650,11 +791,6 @@ async function main() {
       await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, TAHUN, kode, pagu]);
     }
     for (const [kode, , jenis] of REKENING) if (jenis && !belanjaPerRek[kode]) await pool.query('INSERT INTO anggaran (skpd_id, tahun, kode_rekening, pagu) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [skpd, TAHUN, kode, round(between(50, 300) * 1_000_000 * s.skala, 1_000_000)]);
-    // Verifikasi: semua sampai 2 bulan lalu
-    await pool.query(`INSERT INTO bku_verifications (entry_id, status, catatan, verified_by)
-      SELECT id, CASE WHEN random() < 0.01 THEN 'ditolak' ELSE 'diverifikasi' END, NULL, $3 FROM bku_entries WHERE skpd_id = $1 AND tanggal < $2`,
-    [skpd, ymd(TAHUN, Math.max(1, lastMonth - 1), 1), userIds.verifikator]);
-    await pool.query(`UPDATE bku_verifications SET catatan = 'Bukti pendukung belum lengkap' WHERE status = 'ditolak' AND catatan IS NULL`);
     const { rows: [cnt] } = await pool.query('SELECT COUNT(*)::int AS n FROM bku_entries WHERE skpd_id = $1', [skpd]);
     console.log(`[seed] ${s.nama}: ${cnt.n} entri BKU`);
   }
@@ -662,9 +798,16 @@ async function main() {
   await seedTahunLalu({ skpdIds, userIds, rekananIds });
   await seedFiturLanjutan({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
   await seedTahap5({ TAHUN, lastMonth, lastDay, skpdIds, userIds });
+  await seedTahap6({ TAHUN, lastMonth, skpdIds, userIds });
+  await seedTahap7({ TAHUN, skpdIds, userIds });
   // Mutasi bank contoh: salin transaksi bank September + 2 baris yang tidak ada di BKU (biaya admin & bunga)
   bankRows.push({ tanggal: '2026-09-30', ket: 'BIAYA ADMINISTRASI', debet: 15000, kredit: 0 }, { tanggal: '2026-09-30', ket: 'BUNGA JASA GIRO', debet: 0, kredit: 48250.37 });
   if (bankRows.length > 4) bankRows.splice(3, 1); // satu transaksi BKU sengaja tidak ada di bank
+  // Variasi untuk rekonsiliasi otomatis: satu transfer terpotong biaya (selisih) dan satu baris tercetak dua kali (duplikat)
+  const terpotong = bankRows.find((r, i) => i > 5 && r.debet > 1_000_000);
+  if (terpotong) terpotong.debet -= 6500;
+  const ganda = bankRows.find((r, i) => i > 8 && r.debet > 0 && r !== terpotong);
+  if (ganda) bankRows.push({ ...ganda });
   bankRows.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
   await pool.query(`INSERT INTO daily_summary (skpd_id, tanggal, penerimaan, pengeluaran, jumlah_transaksi)
     SELECT skpd_id, tanggal, SUM(penerimaan), SUM(pengeluaran), COUNT(*) FROM bku_entries GROUP BY 1,2

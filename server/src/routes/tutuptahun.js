@@ -18,8 +18,8 @@ async function saldoPerMetode(c, skpd, tahun) {
 export async function periksaTahun(skpd, tahun, c = { query: (...a) => query(...a) }) {
   const [{ rows: [k] }, { rows: [v] }, { rows: [p] }, { rows: [pj] }, { rows: [u] }, { rows: [t] }, { rows: [s] }, { rows: [pk] }, saldo, { rows: [tt] }] = await Promise.all([
     c.query('SELECT COUNT(*) FILTER (WHERE bulan <= 11)::int AS n, bool_or(bulan = 12) AS des FROM periode_kunci WHERE skpd_id = $1 AND tahun = $2', [skpd, tahun]),
-    c.query(`SELECT COUNT(*) FILTER (WHERE v.status IS NULL)::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak FROM bku_entries e
-      LEFT JOIN LATERAL (SELECT status FROM bku_verifications WHERE entry_id = e.id ORDER BY verified_at DESC LIMIT 1) v ON true WHERE e.skpd_id = $1 AND e.tahun = $2`, [skpd, tahun]),
+    c.query(`SELECT COUNT(*) FILTER (WHERE v.status = 'menunggu')::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak FROM bku_entries e
+      LEFT JOIN bku_status v ON v.entry_id = e.id WHERE e.skpd_id = $1 AND e.tahun = $2`, [skpd, tahun]),
     c.query("SELECT COUNT(*)::int AS n, COALESCE(SUM(nominal),0)::float AS nilai FROM pajak WHERE skpd_id = $1 AND tahun = $2 AND status = 'dipungut'", [skpd, tahun]),
     c.query("SELECT COUNT(*)::int AS n, COALESCE(SUM(nilai),0)::float AS nilai FROM panjar WHERE skpd_id = $1 AND tahun = $2 AND status = 'berjalan'", [skpd, tahun]),
     c.query(`SELECT COUNT(*) FILTER (WHERE saldo <> 0)::int AS bersaldo, COALESCE(SUM(saldo),0)::float AS saldo,

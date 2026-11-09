@@ -45,12 +45,6 @@ export default async function pengingatRoutes(app) {
     const tahun = int(req.query.tahun, new Date().getFullYear());
     return { hari_ini: hariIni(), rows: await daftarJatuhTempo(skpd, tahun) };
   });
-
-  app.get('/api/notifikasi', { preHandler: requireAuth }, async (req) => {
-    const skpd = scopeSkpd(req.user, req.query.skpd_id);
-    if (!skpd) return { items: [] };
-    return { items: await kumpulkanNotifikasi(req.user, skpd, int(req.query.tahun, new Date().getFullYear())) };
-  });
 }
 
 /** Semua notifikasi untuk satu pengguna pada satu SKPD/tahun (lonceng di header dan pengingat WA/email). */
@@ -80,16 +74,12 @@ export async function kumpulkanNotifikasi(user, skpd, tahun) {
       link: '/tutup-buku', tanggal: today });
   }
 
-  const { rows: [v] } = await query(`SELECT COUNT(*) FILTER (WHERE v.status IS NULL)::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak
-    FROM bku_entries e LEFT JOIN LATERAL (SELECT status FROM bku_verifications WHERE entry_id = e.id ORDER BY verified_at DESC LIMIT 1) v ON true
-    WHERE e.skpd_id = $1 AND e.tahun = $2 AND NOT EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = e.id AND k.skpd_id = e.skpd_id)`, [skpd, tahun]);
+  const { rows: [v] } = await query(`SELECT COUNT(*) FILTER (WHERE v.status = 'menunggu')::int AS belum, COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak
+    FROM bku_entries e LEFT JOIN bku_status v ON v.entry_id = e.id
+    WHERE e.skpd_id = $1 AND e.tahun = $2 AND v.induk_id IS NULL`, [skpd, tahun]);
   if (v.ditolak && ['admin', 'bendahara'].includes(req.user.role)) {
-    items.push({ id: `ditolak-${v.ditolak}`, tipe: 'verifikasi', tingkat: 'bahaya', judul: `${v.ditolak} transaksi ditolak verifikator`,
-      pesan: 'Periksa catatan penolakan lalu buat jurnal koreksi bila perlu.', link: '/bku?verif=ditolak', tanggal: today });
-  }
-  if (v.belum && ['admin', 'verifikator'].includes(req.user.role)) {
-    items.push({ id: `verif-${v.belum}`, tipe: 'verifikasi', tingkat: 'info', judul: `${v.belum.toLocaleString('id-ID')} transaksi menunggu verifikasi`,
-      pesan: 'Buka BKU dengan filter "Belum diverifikasi".', link: '/bku?verif=belum', tanggal: today });
+    items.push({ id: `ditolak-${v.ditolak}`, tipe: 'verifikasi', tingkat: 'bahaya', judul: `${v.ditolak} transaksi BKU ditolak dalam persetujuan`,
+      pesan: 'Lengkapi bukti lalu ajukan ulang, atau buat jurnal koreksi bila transaksinya memang salah.', link: '/bku?status=ditolak', tanggal: today, kategori: 'persetujuan' });
   }
 
   for (const fn of sumberNotifikasi) items.push(...(await fn({ user: req.user, skpd, tahun, today })));

@@ -31,6 +31,13 @@ import persetujuanRoutes from './routes/persetujuan.js';
 import pengingatLuarRoutes, { mulaiPenjadwal } from './routes/pengingatluar.js';
 import transferRoutes from './routes/transfer.js';
 import cadanganRoutes from './routes/cadangan.js';
+import rekonsiliasiRoutes from './routes/rekonsiliasi.js';
+import monitoringRoutes from './routes/monitoring.js';
+import akuntansiRoutes from './routes/akuntansi.js';
+import notifikasiRoutes from './routes/notifikasi.js';
+import keamananRoutes from './routes/keamanan.js';
+import asetRoutes from './routes/aset.js';
+import asistenRoutes from './routes/asisten.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -55,13 +62,13 @@ export async function buildApp() {
     const message = err.code === '23505' ? 'Data dengan kunci yang sama sudah ada'
       : err.code === '23503' ? 'Referensi data tidak ditemukan (periksa kode/ID yang dipilih)'
       : status >= 500 ? 'Terjadi kesalahan pada server' : err.message;
-    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log });
+    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log, alasan: err.alasan });
   });
 
   authRoutes(app);
   for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes, spjRoutes, anomaliRoutes,
     sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes,
-    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes]) await app.register(r);
+    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes, rekonsiliasiRoutes, monitoringRoutes, akuntansiRoutes, notifikasiRoutes, keamananRoutes, asetRoutes, asistenRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });

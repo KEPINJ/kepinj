@@ -6,8 +6,10 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, url, body, { raw } = {}) {
+async function request(method, url, body, { raw, latar } = {}) {
   const opts = { method, credentials: 'include', headers: {} };
+  // Permintaan latar (polling) tidak dihitung sebagai aktivitas pengguna untuk batas waktu sesi
+  if (latar) opts.headers['X-Background'] = '1';
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
   const res = await fetch(url, opts);
@@ -15,7 +17,8 @@ async function request(method, url, body, { raw } = {}) {
   const isJson = res.headers.get('content-type')?.includes('json');
   const data = isJson ? await res.json() : await res.text();
   if (!res.ok) {
-    if (res.status === 401 && !url.includes('/auth/')) window.dispatchEvent(new Event('bku:unauthorized'));
+    if (res.status === 401 && !url.includes('/auth/login')) window.dispatchEvent(new CustomEvent('bku:unauthorized', { detail: isJson ? data : null }));
+    if (res.status === 403 && isJson && data?.alasan === 'ganti_password') window.dispatchEvent(new Event('bku:ganti-password'));
     throw new ApiError(res.status, isJson ? data : { error: data });
   }
   return data;
@@ -30,6 +33,7 @@ export const qs = (o) => {
 
 export const api = {
   get: (url, params) => request('GET', url + qs(params)),
+  latar: (url, params) => request('GET', url + qs(params), undefined, { latar: true }),
   post: (url, body) => request('POST', url, body),
   put: (url, body) => request('PUT', url, body),
   patch: (url, body) => request('PATCH', url, body),

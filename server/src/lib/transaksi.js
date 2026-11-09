@@ -1,6 +1,7 @@
 // Alur transaksi bendahara yang dipakai API dan seeder.
 import { emit } from '../db.js';
 import { insertEntries } from './ledger.js';
+import { tautkanInduk, hitungKelengkapan } from './statusbku.js';
 import { bad, money, isDate } from './http.js';
 
 export const LABEL_PAJAK = { PPH21: 'PPh 21', PPH22: 'PPh 22', PPH23: 'PPh 23', PPH4A2: 'PPh 4 ayat (2)', PPN: 'PPN' };
@@ -33,6 +34,9 @@ export async function catatTransaksi(c, user, skpd, b) {
         money(p.dpp), Number(p.tarif) || 0, money(p.nominal), { belanja_entry_id: entry.id, sp2d: b.no_sp2d || null, bruto: p.bruto ?? undefined }, user.id]);
       pajak.push(rec);
     }
+    // Pungutan pajak mengikuti persetujuan belanjanya; belanja berpajak wajib dokumen pajak
+    await tautkanInduk(c, pungut.map((p) => p.id), entry.id);
+    await hitungKelengkapan(c, [entry.id]);
     await emit(c, 'pajak.created', String(skpd), { skpd_id: skpd, count: pajak.length, nominal: pajak.reduce((s, r) => s + Number(r.nominal), 0) });
   }
   return { entry, pajak, tahun };

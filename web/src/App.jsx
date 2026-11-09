@@ -39,6 +39,15 @@ const AnggaranKas = lazy(() => import('./pages/AnggaranKas.jsx'));
 const TransferMassal = lazy(() => import('./pages/TransferMassal.jsx'));
 const Pengingat = lazy(() => import('./pages/Pengingat.jsx'));
 const Cadangan = lazy(() => import('./pages/Cadangan.jsx'));
+const Notifikasi = lazy(() => import('./pages/Notifikasi.jsx'));
+const MonitoringAnggaran = lazy(() => import('./pages/MonitoringAnggaran.jsx'));
+const Akuntansi = lazy(() => import('./pages/Akuntansi.jsx'));
+const Bukti = lazy(() => import('./pages/Bukti.jsx'));
+const Keamanan = lazy(() => import('./pages/Keamanan.jsx'));
+const Aset = lazy(() => import('./pages/Aset.jsx'));
+const PindaiAset = lazy(() => import('./pages/PindaiAset.jsx'));
+const AsetPublik = lazy(() => import('./pages/AsetPublik.jsx'));
+const Asisten = lazy(() => import('./pages/Asisten.jsx'));
 
 export default function App() {
   const { user } = useApp();
@@ -46,6 +55,10 @@ export default function App() {
   // Halaman verifikasi dokumen (hasil pindai QR) terbuka untuk publik tanpa login
   if (loc.pathname.startsWith('/v/')) {
     return <Suspense fallback={<Loading />}><Routes><Route path="/v/:kode" element={<VerifikasiDokumen />} /></Routes></Suspense>;
+  }
+  // Label QR aset: identitas minimal untuk publik, detail & pemeriksaan bagi petugas yang login
+  if (loc.pathname.startsWith('/a/')) {
+    return <Suspense fallback={<Loading />}><Routes><Route path="/a/:kode" element={<AsetPublik />} /></Routes></Suspense>;
   }
   if (user === undefined) return <Loading text="Menyiapkan aplikasi…" />;
   if (!user) return <Login />;
@@ -86,6 +99,15 @@ export default function App() {
           <Route path="sistem" element={<Sistem />} />
           <Route path="audit" element={<Audit />} />
           <Route path="pengguna" element={<Pengguna />} />
+          <Route path="notifikasi" element={<Notifikasi />} />
+          <Route path="monitoring-anggaran" element={<MonitoringAnggaran />} />
+          <Route path="akuntansi" element={<Akuntansi />} />
+          <Route path="bukti" element={<Bukti />} />
+          <Route path="keamanan" element={<Keamanan />} />
+          <Route path="aset" element={<Aset />} />
+          <Route path="aset/pindai" element={<PindaiAset />} />
+          <Route path="asisten" element={<Asisten />} />
+          <Route path="akun" element={<Navigate to="/?ganti-password=1" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

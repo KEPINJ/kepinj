@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { DatabaseBackup, Plus, Download, ShieldCheck, Upload, RotateCcw, Trash2, Clock, HardDrive, CheckCircle2, AlertTriangle, Save } from 'lucide-react';
+import { DatabaseBackup, Plus, Download, ShieldCheck, Upload, RotateCcw, Trash2, Clock, HardDrive, CheckCircle2, AlertTriangle, Save, FlaskConical, History } from 'lucide-react';
 import { api, download } from '../lib/api.js';
 import { useApp } from '../lib/ctx.jsx';
 import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, SkeletonRows, Stat, cx, useLoad, useToast } from '../components/ui.jsx';
@@ -16,7 +16,10 @@ export default function Cadangan() {
   const [pulih, setPulih] = useState(null);
   const [f, setF] = useState(null);
   const file = useRef(null);
-  const { data, loading, reload } = useLoad(() => api.get('/api/cadangan'), []);
+  const { data, loading, reload: muatCadangan } = useLoad(() => api.get('/api/cadangan'), []);
+  const uji = useLoad(() => api.get('/api/cadangan/uji'), []);
+  const riwayat = useLoad(() => api.get('/api/cadangan/riwayat'), []);
+  const reload = () => { muatCadangan(); uji.reload(); riwayat.reload(); };
   useEffect(() => { if (data) setF({ ...data.pengaturan }); }, [data]);
   if (!can('admin')) return <Alert tone="error">Halaman ini khusus administrator.</Alert>;
 
@@ -35,6 +38,14 @@ export default function Cadangan() {
     if (!fl) return;
     setBusy('unggah');
     try { const m = await api.upload('/api/cadangan/unggah', fl); toast(`${fl.name} diterima sebagai ${m.nama}`); reload(); } catch (er) { toast(er.message, 'error'); } finally { setBusy(''); }
+  };
+  const ujiPulih = async (d) => {
+    setCek((c) => ({ ...c, [`uji:${d.nama}`]: true }));
+    try {
+      const r = await api.post(`/api/cadangan/${d.nama}/uji`, {});
+      toast(r.berhasil ? `Uji pemulihan ${d.nama} berhasil: ${num(r.baris)} baris dari ${r.tabel} tabel dipulihkan ke skema sementara dan diverifikasi` : `Uji pemulihan GAGAL: ${r.galat}`, r.berhasil ? 'ok' : 'error');
+      reload();
+    } catch (e) { toast(e.message, 'error'); } finally { setCek((c) => ({ ...c, [`uji:${d.nama}`]: false })); }
   };
   const hapus = async (d) => {
     if (!window.confirm(`Hapus berkas cadangan ${d.nama}?`)) return;
@@ -69,6 +80,8 @@ export default function Cadangan() {
                 <Field label="Jam"><Input type="time" value={f.cadangan_jam || ''} onChange={(e) => setF({ ...f, cadangan_jam: e.target.value })} /></Field>
                 <Field label="Simpan (berkas)"><Input type="number" min={1} max={90} value={f.cadangan_simpan || ''} onChange={(e) => setF({ ...f, cadangan_simpan: e.target.value })} /></Field>
               </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={!!f.uji_pulih_aktif} onChange={(e) => setF({ ...f, uji_pulih_aktif: e.target.checked })} />Uji pemulihan otomatis berkala</label>
+              <Field label="Uji pemulihan setiap (hari)" hint="Cadangan terbaru dipulihkan ke skema sementara, dihitung & diverifikasi rantai hash-nya, lalu dibuang"><Input type="number" min={1} max={90} value={f.uji_pulih_hari || ''} onChange={(e) => setF({ ...f, uji_pulih_hari: e.target.value })} /></Field>
               <p className="text-[11px] text-slate-500">Cadangan otomatis yang lebih lama dihapus bergilir. Cadangan manual, unggahan, dan pra-pemulihan tidak ikut dihapus.</p>
               <Alert tone="warn" title="Simpan juga di luar server">Unduh cadangan secara berkala ke penyimpanan lain (NAS, cloud instansi) agar data aman bila server rusak.</Alert>
             </div>
@@ -95,6 +108,7 @@ export default function Cadangan() {
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <Button size="sm" variant="ghost" icon={ShieldCheck} loading={c?.proses} onClick={() => verifikasi(d)}>Verifikasi</Button>
+                      <Button size="sm" variant="ghost" icon={FlaskConical} loading={cek[`uji:${d.nama}`]} onClick={() => ujiPulih(d)} title="Pulihkan ke skema sementara, verifikasi, lalu buang (data aktif tidak berubah)">Uji pulih</Button>
                       <Button size="sm" variant="secondary" icon={Download} onClick={() => download(`/api/cadangan/${d.nama}/unduh`).catch((e) => toast(e.message, 'error'))}>Unduh</Button>
                       <Button size="sm" variant="secondary" icon={RotateCcw} onClick={() => setPulih(d)}>Pulihkan</Button>
                       <Button size="sm" variant="ghost" icon={Trash2} aria-label="Hapus" onClick={() => hapus(d)} />
@@ -103,6 +117,23 @@ export default function Cadangan() {
                 );
               })}
             </div>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Riwayat uji pemulihan basis data" subtitle="Membuktikan cadangan benar-benar dapat dipulihkan tanpa mengganggu data aktif" bodyClass="p-0">
+          {!uji.data?.rows.length ? <Empty icon={FlaskConical} title="Belum pernah diuji" text="Klik “Uji pulih” pada salah satu berkas cadangan." /> : (
+            <table className="w-full text-xs"><thead><tr><th className="th">Waktu</th><th className="th">Berkas</th><th className="th">Hasil</th><th className="th text-right">Baris</th><th className="th text-right">Durasi</th></tr></thead>
+              <tbody>{uji.data.rows.map((u) => <tr key={u.id}><td className="td whitespace-nowrap">{waktu(u.mulai)}<p className="text-[10px] text-slate-400">{u.pemicu} · {u.oleh_nama || 'sistem'}</p></td><td className="td font-mono text-[11px]">{u.nama_file}</td>
+                <td className="td">{u.berhasil ? <Badge color="green"><CheckCircle2 className="h-3 w-3" />Berhasil</Badge> : <Badge color="red" title={u.galat}><AlertTriangle className="h-3 w-3" />Gagal</Badge>}{u.galat && <p className="text-[10px] text-rose-700">{u.galat}</p>}</td>
+                <td className="td num text-right">{num(u.baris)}<p className="text-[10px] text-slate-400">{u.tabel} tabel</p></td><td className="td num text-right">{(u.durasi_ms / 1000).toFixed(1)} dtk</td></tr>)}</tbody></table>
+          )}
+        </Card>
+        <Card title="Riwayat pencadangan & pemulihan" subtitle="Dari jejak audit: siapa membuat, mengunduh, memverifikasi, menguji, atau memulihkan" bodyClass="max-h-96 overflow-y-auto p-0">
+          {!riwayat.data?.rows.length ? <Empty icon={History} title="Belum ada riwayat" /> : (
+            <ul className="divide-y divide-slate-100">{riwayat.data.rows.map((r) => (
+              <li key={r.id} className="px-4 py-2 text-xs"><p><b>{r.username || 'sistem'}</b> · {r.action.replace('cadangan_', '').replaceAll('_', ' ')} <span className="font-mono text-slate-500">{r.nama_file}</span></p><p className="text-[11px] text-slate-500">{waktu(r.created_at)}{r.detail?.baris ? ` · ${num(r.detail.baris)} baris` : ''}{r.detail?.berhasil === false ? ' · GAGAL' : ''}</p></li>))}</ul>
           )}
         </Card>
       </div>

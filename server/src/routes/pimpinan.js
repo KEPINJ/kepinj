@@ -16,7 +16,7 @@ export async function dataPimpinan(tahun) {
       COALESCE((SELECT SUM(penerimaan - pengeluaran) FROM bku_entries WHERE skpd_id = s.id AND tahun = $1), 0)::float AS saldo,
       COALESCE((SELECT SUM(nominal) FROM pajak WHERE skpd_id = s.id AND tahun = $1 AND status = 'dipungut'), 0)::float AS pajak_belum_setor,
       (SELECT COUNT(*) FROM bku_entries e WHERE e.skpd_id = s.id AND e.tahun = $1
-         AND NOT EXISTS (SELECT 1 FROM bku_verifications v WHERE v.entry_id = e.id))::int AS belum_verifikasi,
+         AND EXISTS (SELECT 1 FROM bku_status v WHERE v.entry_id = e.id AND v.status = 'menunggu' AND v.induk_id IS NULL))::int AS belum_verifikasi,
       (SELECT COUNT(*) FROM bku_entries WHERE skpd_id = s.id AND tahun = $1)::int AS transaksi,
       (SELECT MAX(tanggal) FROM bku_entries WHERE skpd_id = s.id AND tahun = $1) AS transaksi_terakhir,
       COALESCE((SELECT MAX(bulan) FROM periode_kunci WHERE skpd_id = s.id AND tahun = $1), 0)::int AS tutup_buku_sd,
