@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { migrate } from './db/migrate.js';
+import { ensureAdmin } from './db/bootstrap.js';
 import { authPlugin, authRoutes } from './auth.js';
 import { startEventPipeline } from './events/bus.js';
 import bkuRoutes from './routes/bku.js';
@@ -77,17 +78,28 @@ export async function buildApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Jalankan server (dipakai `node src/index.js` dan titik masuk cPanel `app.cjs`). */
+export async function start() {
   if (config.isProd && (config.jwtSecret.length < 32 || config.jwtSecret.startsWith('ganti'))) {
     console.error('JWT_SECRET wajib diisi string acak minimal 32 karakter di produksi');
     process.exit(1);
   }
   await migrate();
   const app = await buildApp();
+  await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
-  await app.listen({ port: config.port, host: config.host });
+  if (typeof globalThis.PhusionPassenger !== 'undefined' || typeof globalThis.LsNode !== 'undefined') {
+    // Hosting cPanel (Phusion Passenger / LiteSpeed lsnode): socket diatur web server
+    await app.ready();
+    app.server.listen(typeof globalThis.PhusionPassenger !== 'undefined' ? 'passenger' : config.port);
+  } else {
+    await app.listen({ port: config.port, host: config.host });
+  }
   const stopJadwal = config.scheduler ? mulaiPenjadwal(app.log) : () => {};
+  let closing = false;
   const shutdown = async () => {
+    if (closing) return;
+    closing = true;
     stopJadwal();
     await app.close();
     await stopEvents();
@@ -97,3 +109,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) await start();

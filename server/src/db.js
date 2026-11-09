@@ -1,6 +1,10 @@
-import pg from 'pg';
+import pgNative from 'pg';
+import pglite from './db/pglite-pg.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from './config.js';
+
+// DATABASE_URL=pglite:/folder menjalankan PostgreSQL WASM di dalam proses (hosting tanpa server PostgreSQL, mis. cPanel)
+const pg = config.databaseUrl.startsWith('pglite:') ? pglite : pgNative;
 
 // DATE dikembalikan sebagai string 'YYYY-MM-DD' (hindari geseran zona waktu),
 // NUMERIC tetap string agar presisi uang terjaga, BIGINT dikonversi ke Number.
