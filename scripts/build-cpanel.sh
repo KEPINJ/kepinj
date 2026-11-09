@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 OUT=dist-cpanel
 rm -rf "$OUT" bku-bkad-cpanel.zip
 mkdir -p "$OUT/bku/web"
-tar -cf - --exclude=node_modules --exclude=test --exclude='*.log' --exclude=tmp --exclude='passenger.*' server shared samples | tar -xf - -C "$OUT/bku"
+tar -cf - --exclude=node_modules --exclude=test --exclude='*.log' --exclude=tmp --exclude='passenger.*' --exclude=backups server shared samples | tar -xf - -C "$OUT/bku"
 cp -r web/dist "$OUT/bku/web/dist"
 rm -rf "$OUT/bku/web/dist/demo"  # snapshot mode demo (bila ada) tidak dipakai di server
 cp docs/HOSTING-CPANEL.md "$OUT/bku/PANDUAN-HOSTING.md"
