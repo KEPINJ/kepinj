@@ -7,16 +7,17 @@ import { Alert, Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, P
 import LampiranBukti from '../components/LampiranBukti.jsx';
 import { PilihKolom, PresetFilter, useKolom } from '../components/BkuTabelAlat.jsx';
 import TransaksiForm from '../components/TransaksiForm.jsx';
+import { PersetujuanBku, PratinjauJurnal, StatusBku } from '../components/PersetujuanBku.jsx';
+import { KELENGKAPAN } from '../components/LampiranBukti.jsx';
 import { BULAN, rp, money, tgl, waktu, today, JENIS_PAJAK } from '../lib/format.js';
 
-const VERIF = { diverifikasi: ['green', 'Terverifikasi'], ditolak: ['red', 'Ditolak'] };
 
 export default function Bku() {
   const { skpdId, tahun, can } = useApp();
   const [sp, setSp] = useSearchParams();
   const toast = useToast();
   const bulanAwal = sp.get('bulan') ? Number(sp.get('bulan')) : sp.get('cari') ? '' : tahun === new Date().getFullYear() ? new Date().getMonth() + 1 : '';
-  const [filter, setFilter] = useState({ bulan: bulanAwal, q: sp.get('cari') || '', jenis: '', metode: '', verif: sp.get('verif') || '' });
+  const [filter, setFilter] = useState({ bulan: bulanAwal, q: sp.get('cari') || '', jenis: '', metode: '', status: sp.get('status') || '', dokumen: sp.get('dokumen') || '' });
   const [q, setQ] = useState(sp.get('cari') || '');
   const [page, setPage] = useState(1);
   const [form, setForm] = useState(sp.get('baru') === '1');
@@ -28,7 +29,8 @@ export default function Bku() {
   useEffect(() => {
     if (sp.get('cari') !== null) { setQ(sp.get('cari')); setFilter((f) => ({ ...f, q: sp.get('cari'), bulan: sp.get('bulan') ? Number(sp.get('bulan')) : '' })); }
     if (sp.get('id')) setDetail(Number(sp.get('id')));
-    if (sp.get('verif')) setFilter((f) => ({ ...f, verif: sp.get('verif') }));
+    if (sp.get('status')) setFilter((f) => ({ ...f, status: sp.get('status'), bulan: '' }));
+    if (sp.get('dokumen')) setFilter((f) => ({ ...f, dokumen: sp.get('dokumen'), bulan: '' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp]);
   useEffect(() => { const t = setTimeout(() => { setFilter((f) => ({ ...f, q })); setPage(1); }, 350); return () => clearTimeout(t); }, [q]);
@@ -40,7 +42,7 @@ export default function Bku() {
   const verify = async (status, ids, catatan) => {
     try {
       const r = await api.post(`/api/bku/${ids[0]}/verifikasi`, { status, ids, catatan });
-      toast(`${r.updated} transaksi ${status === 'ditolak' ? 'ditolak' : 'terverifikasi'}`);
+      toast(`${r.updated ?? ids.length} transaksi ${status === 'ditolak' ? 'ditolak' : 'disetujui pada tahap Anda'}${r.gagal?.length ? `, ${r.gagal.length} dilewati` : ''}`);
       setSel(new Set()); reload();
     } catch (e) { toast(e.message, 'error'); }
   };
@@ -70,14 +72,15 @@ export default function Bku() {
           <Select className="sm:!w-auto" value={filter.bulan} onChange={upd('bulan')} placeholder="Semua bulan" options={BULAN.map((b, i) => ({ value: i + 1, label: b }))} />
           <Select className="sm:!w-auto" value={filter.jenis} onChange={upd('jenis')} placeholder="Semua jenis" options={Object.entries(meta).map(([value, label]) => ({ value, label }))} />
           <Select className="sm:!w-auto" value={filter.metode} onChange={upd('metode')} placeholder="Bank & tunai" options={[{ value: 'bank', label: 'Bank' }, { value: 'tunai', label: 'Tunai' }]} />
-          <Select className="sm:!w-auto" value={filter.verif} onChange={upd('verif')} placeholder="Semua status" options={[{ value: 'belum', label: 'Belum diverifikasi' }, { value: 'diverifikasi', label: 'Terverifikasi' }, { value: 'ditolak', label: 'Ditolak' }]} />
+          <Select className="sm:!w-auto" value={filter.status} onChange={upd('status')} placeholder="Semua status" options={[{ value: 'menunggu', label: 'Menunggu verifikasi' }, { value: 'disetujui', label: 'Disetujui' }, { value: 'ditolak', label: 'Ditolak' }, { value: 'dikoreksi', label: 'Dikoreksi' }]} />
+          <Select className="sm:!w-auto" value={filter.dokumen} onChange={upd('dokumen')} placeholder="Semua dokumen" options={[{ value: 'kurang', label: 'Dokumen belum lengkap' }, { value: 'lengkap', label: 'Dokumen lengkap' }]} />
           <PilihKolom kolom={kolom} onChange={simpanKolom} />
         </div>
         <PresetFilter filter={filter} onPilih={(f) => { setFilter(f); setQ(f.q || ''); setPage(1); }} />
-        {sel.size > 0 && can('admin', 'verifikator') && (
+        {sel.size > 0 && can('admin', 'verifikator', 'pimpinan') && (
           <div className="flex flex-wrap items-center gap-2 border-b border-brand-100 bg-brand-50 px-3 py-2 text-sm">
             <span className="font-medium text-brand-800">{sel.size} dipilih</span>
-            <Button size="sm" variant="success" icon={CheckCheck} onClick={() => verify('diverifikasi', [...sel])}>Verifikasi</Button>
+            <Button size="sm" variant="success" icon={CheckCheck} onClick={() => verify('diverifikasi', [...sel])}>Setujui tahap saya</Button>
             <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>Batal pilih</Button>
           </div>
         )}
@@ -94,7 +97,7 @@ export default function Bku() {
                       <span className="line-clamp-2 text-sm text-slate-800">{e.uraian}</span>
                       <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
                         <span className="num">{tgl(e.tanggal)} · No. {e.no_urut}</span>
-                        {e.verif_status && <Badge color={VERIF[e.verif_status][0]}>{VERIF[e.verif_status][1]}</Badge>}
+                        <StatusBku status={e.status_persetujuan} tahap={e.tahap_menunggu} />
                         {e.jumlah_lampiran > 0 && <span className="inline-flex items-center gap-0.5"><Paperclip className="h-3 w-3" />{e.jumlah_lampiran}</span>}
                       </span>
                     </span>
@@ -112,7 +115,7 @@ export default function Bku() {
             <table className="w-full min-w-[980px]">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {can('admin', 'verifikator') && <th className="th w-8"><input type="checkbox" checked={data.rows.length > 0 && data.rows.every((x) => sel.has(x.id))} onChange={(e) => setSel(e.target.checked ? new Set(data.rows.map((x) => x.id)) : new Set())} aria-label="Pilih semua" /></th>}
+                  {can('admin', 'verifikator', 'pimpinan') && <th className="th w-8"><input type="checkbox" checked={data.rows.length > 0 && data.rows.every((x) => sel.has(x.id))} onChange={(e) => setSel(e.target.checked ? new Set(data.rows.map((x) => x.id)) : new Set())} aria-label="Pilih semua" /></th>}
                   {kolom.no && <th className="th w-14">No</th>}{kolom.tanggal && <th className="th w-24">Tanggal</th>}{kolom.bukti && <th className="th">No. bukti</th>}<th className="th">Uraian</th>
                   {kolom.rekening && <th className="th">Kode rekening</th>}{kolom.kas && <th className="th">Kas</th>}
                   {kolom.penerimaan && <th className="th text-right">Penerimaan</th>}{kolom.pengeluaran && <th className="th text-right">Pengeluaran</th>}{kolom.saldo && <th className="th text-right">Saldo</th>}
@@ -121,7 +124,7 @@ export default function Bku() {
               <tbody className={cx(loading && 'opacity-60')}>
                 {data.rows.map((e) => (
                   <tr key={e.id} className="cursor-pointer hover:bg-brand-50/40" onClick={() => setDetail(e.id)}>
-                    {can('admin', 'verifikator') && <td className="td" onClick={(x) => x.stopPropagation()}><input type="checkbox" checked={sel.has(e.id)} onChange={(x) => { const s = new Set(sel); x.target.checked ? s.add(e.id) : s.delete(e.id); setSel(s); }} aria-label={`Pilih ${e.no_urut}`} /></td>}
+                    {can('admin', 'verifikator', 'pimpinan') && <td className="td" onClick={(x) => x.stopPropagation()}><input type="checkbox" checked={sel.has(e.id)} onChange={(x) => { const s = new Set(sel); x.target.checked ? s.add(e.id) : s.delete(e.id); setSel(s); }} aria-label={`Pilih ${e.no_urut}`} /></td>}
                     {kolom.no && <td className="td num text-slate-500">{e.no_urut}</td>}
                     {kolom.tanggal && <td className="td num whitespace-nowrap">{tgl(e.tanggal)}</td>}
                     {kolom.bukti && <td className="td whitespace-nowrap text-xs text-slate-600">{e.no_bukti}</td>}
@@ -131,7 +134,8 @@ export default function Bku() {
                         <Badge color={e.jenis === 'KOREKSI' ? 'violet' : e.jenis.startsWith('PAJAK') ? 'amber' : e.jenis.startsWith('SP2D') ? 'blue' : 'slate'}>{meta[e.jenis] || e.jenis}</Badge>
                         {!kolom.rekening && e.kode_rekening && <span className="text-[11px] text-slate-500">{e.kode_rekening}</span>}
                         {!kolom.kas && e.metode === 'tunai' && <Badge>Tunai</Badge>}
-                        {e.verif_status && <Badge color={VERIF[e.verif_status][0]}>{VERIF[e.verif_status][1]}</Badge>}
+                        {!e.induk_id && <StatusBku status={e.status_persetujuan} tahap={e.tahap_menunggu} />}
+                        {['sebagian', 'belum'].includes(e.dokumen_status) && <Badge color={KELENGKAPAN[e.dokumen_status][0]} title={`Kurang: ${(e.dokumen_kurang || []).join(', ')}`}>Dokumen {KELENGKAPAN[e.dokumen_status][1].toLowerCase()}</Badge>}
                         {e.dikoreksi && <Badge color="violet">Sudah dikoreksi</Badge>}
                         {e.jumlah_lampiran > 0 && <Badge title="Lampiran bukti"><Paperclip className="h-3 w-3" />{e.jumlah_lampiran}</Badge>}
                       </div>
@@ -176,10 +180,6 @@ function DetailModal({ id, onClose, onChanged, onVerify }) {
       footer={e && <>
         <Link to={`/cetak/kuitansi/${e.id}`} target="_blank"><Button variant="secondary" icon={FileText}>Cetak kuitansi</Button></Link>
         {can('admin', 'bendahara') && e.jenis !== 'KOREKSI' && !data.koreksi.length && <Button variant="secondary" icon={Undo2} onClick={() => setMode('koreksi')}>Koreksi</Button>}
-        {can('admin', 'verifikator') && <>
-          <Button variant="secondary" icon={XCircle} onClick={() => setMode('tolak')}>Tolak</Button>
-          <Button variant="success" icon={CheckCheck} onClick={async () => { await onVerify('diverifikasi', [e.id]); reload(); }}>Verifikasi</Button>
-        </>}
       </>}>
       {loading || !e ? <Loading /> : (
         <div className="space-y-4">
@@ -210,14 +210,10 @@ function DetailModal({ id, onClose, onChanged, onVerify }) {
               </tbody></table>
             </div>
           )}
+          <PersetujuanBku entryId={e.id} onChanged={() => { onChanged(); reload(); }} />
           <LampiranBukti entryId={e.id} onChanged={onChanged} />
+          {can('admin', 'verifikator', 'pimpinan') && <PratinjauJurnal entryId={e.id} />}
           {data.koreksi.length > 0 && <Alert tone="info">Transaksi ini telah dikoreksi oleh entri No. {data.koreksi.map((k) => k.no_urut).join(', ')}.</Alert>}
-          {data.verifikasi.length > 0 && (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold text-slate-700">Riwayat verifikasi</p>
-              <ul className="space-y-1 text-xs text-slate-600">{data.verifikasi.map((v) => <li key={v.id}><Badge color={VERIF[v.status][0]}>{VERIF[v.status][1]}</Badge> oleh {v.full_name} · {waktu(v.verified_at)}{v.catatan && ` — "${v.catatan}"`}</li>)}</ul>
-            </div>
-          )}
           {mode && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
               <Field label={mode === 'koreksi' ? 'Alasan koreksi (entri pembalik akan dibuat)' : 'Catatan penolakan'}><Textarea value={text} onChange={(x) => setText(x.target.value)} /></Field>

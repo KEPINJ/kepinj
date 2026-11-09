@@ -3,8 +3,6 @@ import { requireAuth, requireRole } from '../auth.js';
 import { bad, int, isDate, scopeSkpd, canWrite, sendFile, XLSX, required, money } from '../lib/http.js';
 import { buildWorkbook } from '../lib/excel.js';
 import { listEntries } from './bku.js';
-import { loadDataset, normDate } from './data.js';
-import { toNum } from '../../../shared/expr.js';
 import { terbilang } from '../../../shared/terbilang.js';
 
 const REALISASI_SQL = `
@@ -19,34 +17,6 @@ const REALISASI_SQL = `
     FULL JOIN real r ON r.kode_rekening = a.kode_rekening
     LEFT JOIN rekening rk ON rk.kode = COALESCE(a.kode_rekening, r.kode_rekening)
    ORDER BY 1`;
-
-/**
- * Saran untuk satu mutasi bank tanpa pasangan: kandidat BKU dengan nilai sama di luar toleransi tanggal,
- * selisih nilai kecil, gabungan dua transaksi, atau usulan pencatatan (biaya admin, bunga/jasa giro).
- */
-export function saranRekonsiliasi(mt, bku, days) {
-  const masuk = mt.masuk > 0;
-  const nilai = masuk ? mt.masuk : mt.keluar;
-  const nilaiBku = (e) => (masuk ? e.masuk : e.keluar);
-  const calon = bku.filter((e) => (masuk ? e.masuk > 0 : e.keluar > 0));
-  const out = [];
-  for (const e of calon) {
-    const d = days(e.tanggal, mt.tanggal);
-    const v = nilaiBku(e); const net = masuk ? v : e.netto;
-    if ((Math.abs(v - nilai) < 0.005 || Math.abs(net - nilai) < 0.005) && d <= 31) out.push({ tipe: 'pasangan', bku: [e], skor: 90 - d, alasan: `Nilai sama, tanggal berbeda ${d} hari` });
-    else if (d <= 7 && Math.abs(v - nilai) / nilai <= 0.01) out.push({ tipe: 'pasangan', bku: [e], skor: 70 - d, alasan: `Selisih nilai kecil Rp ${Math.round(Math.abs(v - nilai)).toLocaleString('id-ID')}` });
-  }
-  const dekat = calon.filter((e) => days(e.tanggal, mt.tanggal) <= 3).slice(0, 60);
-  for (let i = 0; i < dekat.length; i++) {
-    for (let j = i + 1; j < dekat.length; j++) {
-      if (Math.abs(nilaiBku(dekat[i]) + nilaiBku(dekat[j]) - nilai) < 0.005) out.push({ tipe: 'pasangan', bku: [dekat[i], dekat[j]], skor: 60, alasan: 'Gabungan dua transaksi BKU' });
-    }
-  }
-  const ket = mt.keterangan.toUpperCase();
-  if (/BUNGA|JASA GIRO|JS GIRO|INTEREST/.test(ket) && masuk) out.push({ tipe: 'catat', jenis: 'PENERIMAAN', arah: 'penerimaan', skor: 80, uraian: `Penerimaan bunga/jasa giro rekening bendahara (${mt.keterangan})`, alasan: 'Bunga/jasa giro belum dicatat di BKU' });
-  if (/ADM|BIAYA|CHARGE|FEE|PAJAK BUNGA/.test(ket) && !masuk) out.push({ tipe: 'catat', jenis: 'LAINNYA', arah: 'pengeluaran', skor: 80, uraian: `Biaya administrasi bank (${mt.keterangan})`, alasan: 'Biaya bank belum dicatat di BKU' });
-  return out.sort((a, b) => b.skor - a.skor).slice(0, 3);
-}
 
 export const DENOMINASI = [100000, 75000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100];
 
@@ -71,7 +41,7 @@ export default async function laporanRoutes(app) {
         FROM daily_summary WHERE EXTRACT(YEAR FROM tanggal) = $1 AND ${cond} GROUP BY 1 ORDER BY 1`, p),
       query(`SELECT jenis_pajak, status, SUM(nominal) AS nominal, COUNT(*)::int AS jumlah FROM pajak WHERE tahun = $1 AND ${cond} GROUP BY 1,2`, p),
       query(`SELECT COUNT(*)::int AS belum FROM bku_entries e WHERE e.tahun = $1 AND ${cond.replace('skpd_id', 'e.skpd_id')}
-        AND NOT EXISTS (SELECT 1 FROM bku_verifications v WHERE v.entry_id = e.id)`, p),
+        AND EXISTS (SELECT 1 FROM bku_status v WHERE v.entry_id = e.id AND v.status = 'menunggu' AND v.induk_id IS NULL)`, p),
       query(`SELECT e.id, e.skpd_id, e.no_urut, e.tanggal, e.no_bukti, e.jenis, e.uraian, e.penerimaan, e.pengeluaran, e.created_at, s.kode AS skpd_kode
         FROM bku_entries e JOIN skpd s ON s.id = e.skpd_id WHERE e.tahun = $1 AND ${cond.replace('skpd_id', 'e.skpd_id')} ORDER BY e.created_at DESC LIMIT 10`, p),
       semua ? query(`SELECT s.id, s.kode, s.nama, COALESCE(SUM(e.penerimaan),0) AS penerimaan, COALESCE(SUM(e.pengeluaran),0) AS pengeluaran,
@@ -167,87 +137,5 @@ export default async function laporanRoutes(app) {
       await audit(c, req.user, 'penutupan_kas', 'penutupan_kas', row.id, { selisih: row.selisih }, req.ip);
       return { row };
     });
-  });
-
-  app.get('/api/rekonsiliasi/riwayat', { preHandler: requireAuth }, async (req) => {
-    const skpd = scopeSkpd(req.user, req.query.skpd_id);
-    const { rows } = await query(`SELECT r.id, r.dari, r.sampai, r.ringkasan, r.catatan, r.created_at, jsonb_array_length(r.pasangan) AS jumlah_pasangan, u.full_name AS dibuat_oleh
-      FROM rekonsiliasi_bank r LEFT JOIN users u ON u.id = r.created_by WHERE r.skpd_id = $1 ORDER BY r.created_at DESC LIMIT 50`, [skpd]);
-    return { rows };
-  });
-
-  app.post('/api/rekonsiliasi/simpan', { preHandler: requireRole('admin', 'bendahara') }, async (req) => {
-    const b = req.body || {};
-    required(b, ['dari', 'sampai', 'ringkasan']);
-    if (!isDate(b.dari) || !isDate(b.sampai)) throw bad('Periode tidak valid');
-    const skpd = scopeSkpd(req.user, b.skpd_id);
-    canWrite(req.user, skpd);
-    return tx(async (c) => {
-      const { rows: [r] } = await c.query('INSERT INTO rekonsiliasi_bank (skpd_id, dari, sampai, ringkasan, pasangan, catatan, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at',
-        [skpd, b.dari, b.sampai, b.ringkasan, JSON.stringify(Array.isArray(b.pasangan) ? b.pasangan.slice(0, 5000) : []), b.catatan || null, req.user.id]);
-      await audit(c, req.user, 'rekonsiliasi_simpan', 'rekonsiliasi', r.id, { dari: b.dari, sampai: b.sampai, ringkasan: b.ringkasan }, req.ip);
-      return { row: r };
-    });
-  });
-
-  // Rekonsiliasi bank: cocokkan mutasi rekening (dataset upload) dengan BKU kas bank
-  app.post('/api/rekonsiliasi', { preHandler: requireAuth }, async (req) => {
-    const b = req.body || {};
-    required(b, ['dataset_id', 'mapping']);
-    const m = b.mapping;
-    required(m, ['tanggal']);
-    if (!m.debet && !m.kredit && !m.nilai) throw bad('Petakan kolom debet/kredit atau nilai');
-    const skpd = scopeSkpd(req.user, b.skpd_id);
-    const tol = Math.min(Math.max(int(b.toleransi_hari, 3), 0), 31);
-    const { rows: dsRows } = await loadDataset(b.dataset_id, req.user);
-    const mutasi = dsRows.map((r, i) => {
-      const no = i + 1;
-      let masuk = toNum(r[m.kredit]); let keluar = toNum(r[m.debet]);
-      if (m.nilai) { const n = toNum(r[m.nilai]); if (n >= 0) masuk = n; else keluar = -n; }
-      return { baris: no, tanggal: normDate(r[m.tanggal]), keterangan: String(r[m.keterangan] ?? ''), masuk: Math.abs(masuk), keluar: Math.abs(keluar) };
-    }).filter((x) => x.tanggal && (x.masuk > 0 || x.keluar > 0));
-    if (!mutasi.length) throw bad('Tidak ada baris mutasi yang terbaca. Periksa pemetaan kolom.');
-    const dari = b.dari || mutasi.map((x) => x.tanggal).sort()[0];
-    const sampai = b.sampai || mutasi.map((x) => x.tanggal).sort().at(-1);
-    const { rows: semuaBku } = await query(`SELECT id, no_urut, tanggal, no_bukti, jenis, uraian, penerimaan::float AS masuk, pengeluaran::float AS keluar
-      FROM bku_entries WHERE skpd_id = $1 AND metode = 'bank' AND tanggal BETWEEN ($2::date - $4::int) AND ($3::date + $4::int) ORDER BY tanggal, no_urut`, [skpd, dari, sampai, tol]);
-    // Pungutan pajak adalah pembukuan (bukan arus kas bank): belanja dibayar netto ke rekanan.
-    const pungut = {};
-    for (const e of semuaBku) if (e.jenis === 'PAJAK_PUNGUT') pungut[`${e.no_bukti}|${e.tanggal}`] = (pungut[`${e.no_bukti}|${e.tanggal}`] || 0) + e.masuk;
-    const bku = semuaBku.filter((e) => e.jenis !== 'PAJAK_PUNGUT').map((e) => ({ ...e, netto: e.keluar - (e.keluar > 0 ? pungut[`${e.no_bukti}|${e.tanggal}`] || 0 : 0) }));
-    const used = new Set();
-    const days = (a, b2) => Math.abs((Date.parse(a) - Date.parse(b2)) / 86400000);
-    const cocok = []; const hanyaBank = [];
-    for (const mt of mutasi) {
-      const masuk = mt.masuk > 0;
-      const nilai = masuk ? mt.masuk : mt.keluar;
-      let best = null; let bestScore = Infinity;
-      for (const e of bku) {
-        if (used.has(e.id)) continue;
-        const ok = masuk ? Math.abs(e.masuk - nilai) < 0.005 : Math.abs(e.keluar - nilai) < 0.005 || Math.abs(e.netto - nilai) < 0.005;
-        if (!ok) continue;
-        const d = days(e.tanggal, mt.tanggal);
-        if (d > tol) continue;
-        const ref = e.no_bukti && e.no_bukti !== '-' && mt.keterangan.toLowerCase().includes(e.no_bukti.toLowerCase()) ? -10 : 0;
-        if (d + ref < bestScore) { best = e; bestScore = d + ref; }
-      }
-      if (best) { used.add(best.id); cocok.push({ mutasi: mt, bku: best, selisih_hari: days(best.tanggal, mt.tanggal) }); } else hanyaBank.push(mt);
-    }
-    const hanyaBku = bku.filter((e) => !used.has(e.id) && e.tanggal >= dari && e.tanggal <= sampai);
-    const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
-    // Saran pencocokan untuk mutasi bank yang belum berpasangan
-    const sisaBku = bku.filter((e) => !used.has(e.id));
-    for (const mt of hanyaBank) mt.saran = saranRekonsiliasi(mt, sisaBku, days);
-    return {
-      periode: { dari, sampai, toleransi_hari: tol },
-      ringkasan: {
-        mutasi: mutasi.length, cocok: cocok.length, hanya_bank: hanyaBank.length, hanya_bku: hanyaBku.length,
-        persen_cocok: Math.round((cocok.length / mutasi.length) * 1000) / 10,
-        bank_masuk: sum(mutasi, (x) => x.masuk), bank_keluar: sum(mutasi, (x) => x.keluar),
-        bku_masuk: sum(bku.filter((e) => e.tanggal >= dari && e.tanggal <= sampai), (x) => x.masuk),
-        bku_keluar: sum(bku.filter((e) => e.tanggal >= dari && e.tanggal <= sampai), (x) => x.netto),
-      },
-      cocok, hanya_bank: hanyaBank, hanya_bku: hanyaBku,
-    };
   });
 }

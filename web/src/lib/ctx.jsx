@@ -3,7 +3,7 @@ import { api } from './api.js';
 
 const AppCtx = createContext(null);
 export const EVENT_TYPES = ['bku.entry.created', 'bku.verified', 'pajak.created', 'pajak.disetor', 'periode.dikunci', 'periode.dibuka',
-  'spp.updated', 'panjar.updated', 'lampiran.updated', 'penerimaan.updated', 'pembantu.updated', 'persetujuan.updated'];
+  'spp.updated', 'panjar.updated', 'lampiran.updated', 'penerimaan.updated', 'pembantu.updated', 'persetujuan.updated', 'notifikasi.baru'];
 export const useApp = () => useContext(AppCtx);
 
 const store = {
@@ -18,16 +18,25 @@ export function AppProvider({ children }) {
   const [tahun, setTahunState] = useState(store.get('bku.tahun', new Date().getFullYear()));
   const [live, setLive] = useState({ connected: false, mode: null, last: null });
   const [theme, setThemeState] = useState(store.get('bku.theme', 'light'));
+  const [wajibGanti, setWajibGanti] = useState(null);
+  const [sesiPesan, setSesiPesan] = useState('');
   const listeners = useRef(new Set());
 
   const loadMe = useCallback(async () => {
-    try { const { user: u } = await api.get('/api/auth/me'); setUser(u || null); } catch { setUser(null); }
+    try {
+      const r = await api.get('/api/auth/me');
+      setUser(r.user || null);
+      setWajibGanti(r.wajib_ganti_password || null);
+      if (!r.user && r.alasan && r.alasan !== 'tanpa_sesi') setSesiPesan(r.pesan || '');
+    } catch { setUser(null); }
   }, []);
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => {
-    const h = () => setUser(null);
+    const h = (e) => { if (e.detail?.alasan) setSesiPesan(e.detail.error || ''); setUser(null); };
+    const g = () => setWajibGanti((w) => w || 'wajib');
     window.addEventListener('bku:unauthorized', h);
-    return () => window.removeEventListener('bku:unauthorized', h);
+    window.addEventListener('bku:ganti-password', g);
+    return () => { window.removeEventListener('bku:unauthorized', h); window.removeEventListener('bku:ganti-password', g); };
   }, []);
 
   useEffect(() => {
@@ -69,7 +78,7 @@ export function AppProvider({ children }) {
   }, [user]);
 
   const value = useMemo(() => ({
-    user, setUser, reloadMe: loadMe, skpdList, tahun, live, theme,
+    user, setUser, reloadMe: loadMe, skpdList, tahun, live, theme, wajibGanti, setWajibGanti, sesiPesan, setSesiPesan,
     setTheme: (t) => { setThemeState(t); store.set('bku.theme', t); },
     skpdId,
     skpd: skpdList.find((s) => s.id === skpdId),
@@ -77,8 +86,8 @@ export function AppProvider({ children }) {
     setTahun: (v) => { setTahunState(Number(v)); store.set('bku.tahun', Number(v)); },
     can: (...roles) => user && roles.includes(user.role),
     subscribe: (fn) => { listeners.current.add(fn); return () => listeners.current.delete(fn); },
-    logout: async () => { await api.post('/api/auth/logout').catch(() => {}); setUser(null); },
-  }), [user, skpdList, skpdId, tahun, live, loadMe, theme]);
+    logout: async (pesan) => { await api.post('/api/auth/logout').catch(() => {}); setSesiPesan(typeof pesan === 'string' ? pesan : ''); setUser(null); },
+  }), [user, skpdList, skpdId, tahun, live, loadMe, theme, wajibGanti, sesiPesan]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

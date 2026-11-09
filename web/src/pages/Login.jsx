@@ -7,14 +7,14 @@ import { Alert, Button } from '../components/ui.jsx';
 const DEMO = [['admin', 'Administrator'], ['bendahara', 'Bendahara'], ['verifikator', 'Verifikator'], ['pimpinan', 'Pimpinan']];
 
 export default function Login() {
-  const { setUser } = useApp();
+  const { setUser, setWajibGanti, sesiPesan, setSesiPesan } = useApp();
   const [f, setF] = useState({ username: '', password: '' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setErr('');
-    try { const { user } = await api.post('/api/auth/login', f); setUser(user); } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    try { const r = await api.post('/api/auth/login', f); setSesiPesan(''); setWajibGanti(r.wajib_ganti_password || null); setUser(r.user); } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
@@ -43,6 +43,7 @@ export default function Login() {
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Masuk</h2>
           <p className="mt-1 text-sm text-slate-500">Gunakan akun yang diberikan administrator BKAD.</p>
           <div className="mt-7 space-y-4">
+            {sesiPesan && !err && <Alert tone="warn">{sesiPesan}</Alert>}
             {err && <Alert tone="error">{err}</Alert>}
             <div className="relative"><User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input className="input py-2.5 pl-9" placeholder="Username" autoComplete="username" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} autoFocus /></div>

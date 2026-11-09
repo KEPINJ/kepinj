@@ -6,6 +6,8 @@ import { bad, notFound, int, isDate, money, scopeSkpd, canWrite, sendFile, XLSX,
 import { buildWorkbook } from '../lib/excel.js';
 import { terbilang } from '../../../shared/terbilang.js';
 import { catatTransaksi } from '../lib/transaksi.js';
+import { setelStatus } from '../lib/statusbku.js';
+import { putuskan, bolehPutuskan } from './persetujuan.js';
 
 
 function periode(q) {
@@ -38,8 +40,12 @@ async function listEntries(user, q, { all = false } = {}) {
   if (q.q) { params.push(`%${q.q}%`); where.push(`(b.uraian ILIKE $${params.length} OR b.no_bukti ILIKE $${params.length} OR b.kode_rekening ILIKE $${params.length})`); }
   if (q.jenis) { params.push(q.jenis); where.push(`b.jenis = $${params.length}`); }
   if (q.metode) { params.push(q.metode); where.push(`b.metode = $${params.length}`); }
-  if (q.verif === 'belum') where.push('v.status IS NULL');
-  else if (q.verif) { params.push(q.verif); where.push(`v.status = $${params.length}`); }
+  // Status persetujuan berjenjang (parameter lama `verif` tetap dikenali)
+  const status = q.status || { belum: 'menunggu', diverifikasi: 'disetujui', ditolak: 'ditolak' }[q.verif];
+  if (status) { params.push(status); where.push(`s.status = $${params.length}`); }
+  if (q.tahap) { params.push(q.tahap); where.push(`s.status = 'menunggu' AND s.peran_menunggu = $${params.length}`); }
+  if (q.dokumen === 'lengkap') where.push("s.dokumen_status IN ('lengkap','tidak_wajib')");
+  else if (q.dokumen === 'kurang') where.push("s.dokumen_status IN ('sebagian','belum')");
 
   const pageSize = Math.min(int(q.pageSize, 50), 1000);
   const page = Math.max(int(q.page, 1), 1);
@@ -49,15 +55,16 @@ async function listEntries(user, q, { all = false } = {}) {
         FROM bku_entries e WHERE e.skpd_id = $1 AND e.tahun = $2 AND e.tanggal BETWEEN $3 AND $4
     )
     SELECT b.*, r.nama AS rekening_nama, rk.nama AS rekanan_nama, u.full_name AS dibuat_oleh,
-           v.status AS verif_status, v.catatan AS verif_catatan,
+           s.status AS status_persetujuan, s.tahap AS tahap_menunggu, s.peran_menunggu, s.catatan AS catatan_persetujuan,
+           s.dokumen_status, s.dokumen_kurang, s.induk_id,
            EXISTS (SELECT 1 FROM bku_entries k WHERE k.koreksi_of = b.id AND k.skpd_id = b.skpd_id AND k.tahun = b.tahun) AS dikoreksi,
-           (SELECT COUNT(*) FROM lampiran l WHERE l.bku_entry_id = b.id)::int AS jumlah_lampiran,
+           (SELECT COUNT(*) FROM lampiran l WHERE l.bku_entry_id = b.id AND l.dihapus_at IS NULL)::int AS jumlah_lampiran,
            COUNT(*) OVER () AS total_rows
       FROM base b
       LEFT JOIN rekening r ON r.kode = b.kode_rekening
       LEFT JOIN rekanan rk ON rk.id = b.rekanan_id
       LEFT JOIN users u ON u.id = b.created_by
-      LEFT JOIN LATERAL (SELECT status, catatan FROM bku_verifications WHERE entry_id = b.id ORDER BY verified_at DESC LIMIT 1) v ON true
+      LEFT JOIN bku_status s ON s.entry_id = b.id
      WHERE ${where.join(' AND ')}
      ORDER BY b.tanggal, b.no_urut`;
   const sql = all ? base : `${base} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
@@ -104,7 +111,8 @@ export default async function bkuRoutes(app) {
         { key: 'no_bukti', header: 'No. Bukti', width: 20 }, { key: 'uraian', header: 'Uraian', width: 50 },
         { key: 'kode_rekening', header: 'Kode Rekening', width: 20 }, { key: 'penerimaan', header: 'Penerimaan', type: 'money', width: 18 },
         { key: 'pengeluaran', header: 'Pengeluaran', type: 'money', width: 18 }, { key: 'saldo', header: 'Saldo', type: 'money', width: 18 },
-        { key: 'metode', header: 'Kas', width: 8 }, { key: 'verif_status', header: 'Verifikasi', width: 14 },
+        { key: 'metode', header: 'Kas', width: 8 }, { key: 'status_persetujuan', header: 'Status persetujuan', width: 16 },
+        { key: 'dokumen_status', header: 'Kelengkapan dokumen', width: 16 },
       ],
       rows: data.rows,
       totals: { penerimaan: data.ringkasan.penerimaan, pengeluaran: data.ringkasan.pengeluaran, saldo: data.ringkasan.saldo_akhir },
@@ -135,14 +143,15 @@ export default async function bkuRoutes(app) {
         LEFT JOIN users u ON u.id = e.created_by WHERE e.id = $1`, [int(req.params.id)]);
     if (!e) throw notFound();
     scopeSkpd(req.user, e.skpd_id);
-    const [{ rows: [skpd] }, { rows: pajak }, { rows: verifikasi }, { rows: koreksi }] = await Promise.all([
+    const [{ rows: [skpd] }, { rows: pajak }, { rows: verifikasi }, { rows: koreksi }, { rows: [status] }] = await Promise.all([
       query('SELECT * FROM skpd WHERE id = $1', [e.skpd_id]),
       query(`SELECT * FROM pajak WHERE bku_entry_id = $1 OR (detail->>'belanja_entry_id')::bigint = $1 ORDER BY id`, [e.id]),
       query('SELECT v.*, u.full_name FROM bku_verifications v JOIN users u ON u.id = v.verified_by WHERE entry_id = $1 ORDER BY verified_at DESC', [e.id]),
       query('SELECT id, no_urut, tanggal, uraian FROM bku_entries WHERE koreksi_of = $1', [e.id]),
+      query('SELECT * FROM bku_status WHERE entry_id = $1', [e.id]),
     ]);
     const nilai = Number(e.penerimaan) || Number(e.pengeluaran);
-    return { entry: e, skpd, pajak, verifikasi, koreksi, terbilang: terbilang(nilai) };
+    return { entry: e, skpd, pajak, verifikasi, koreksi, status, terbilang: terbilang(nilai) };
   });
 
   app.post('/api/bku', { preHandler: requireRole('admin', 'bendahara') }, async (req) => {
@@ -173,25 +182,34 @@ export default async function bkuRoutes(app) {
         uraian: `Koreksi BKU No. ${o.no_urut} (${o.uraian.slice(0, 120)}): ${req.body.alasan}`,
         penerimaan: o.pengeluaran, pengeluaran: o.penerimaan, koreksi_of: o.id, rekanan_id: o.rekanan_id,
       }]);
-      await audit(c, req.user, 'bku_koreksi', 'bku', o.id, { koreksi_id: k.id, alasan: req.body.alasan }, req.ip);
+      // Entri asal ditandai dikoreksi; tahap persetujuan yang masih berjalan dibatalkan. Jurnal koreksi sendiri melewati persetujuan.
+      const { rows: [st] } = await c.query('SELECT status FROM bku_status WHERE entry_id = $1', [o.id]);
+      await c.query("UPDATE persetujuan SET status = 'batal' WHERE objek = 'bku' AND objek_id = $1 AND status IN ('antre','menunggu')", [String(o.id)]);
+      await setelStatus(c, o.id, { status: 'dikoreksi', catatan: `Dikoreksi oleh BKU No. ${k.no_urut}${st?.status === 'disetujui' ? ' (sebelumnya telah disetujui)' : ''}: ${req.body.alasan}` });
+      await audit(c, req.user, 'bku_koreksi', 'bku', o.id, { koreksi_id: k.id, alasan: req.body.alasan, status_sebelumnya: st?.status }, req.ip);
       return { entry: k };
     });
   });
 
-  app.post('/api/bku/:id/verifikasi', { preHandler: requireRole('admin', 'verifikator') }, async (req) => {
+  // Kompatibilitas: verifikasi/penolakan satu tingkat kini diteruskan ke tahap persetujuan berjenjang yang sedang menunggu
+  app.post('/api/bku/:id/verifikasi', { preHandler: requireRole('admin', 'verifikator', 'pimpinan') }, async (req) => {
     const status = req.body?.status;
     if (!['diverifikasi', 'ditolak'].includes(status)) throw bad('Status harus diverifikasi atau ditolak');
     if (status === 'ditolak' && !req.body.catatan) throw bad('Catatan wajib diisi bila ditolak');
     const ids = (Array.isArray(req.body.ids) ? req.body.ids : [req.params.id]).map(Number);
     return tx(async (c) => {
-      const { rows } = await c.query('SELECT id, skpd_id FROM bku_entries WHERE id = ANY($1)', [ids]);
-      rows.forEach((r) => scopeSkpd(req.user, r.skpd_id));
-      for (const r of rows) {
-        await c.query('INSERT INTO bku_verifications (entry_id, status, catatan, verified_by) VALUES ($1,$2,$3,$4)', [r.id, status, req.body.catatan || null, req.user.id]);
+      const { rows } = await c.query(`SELECT p.id, p.skpd_id, p.peran, p.objek_id FROM persetujuan p
+        WHERE p.objek = 'bku' AND p.objek_id = ANY($1) AND p.status = 'menunggu'`, [ids.map(String)]);
+      let updated = 0; const gagal = [];
+      for (const t of rows) {
+        scopeSkpd(req.user, t.skpd_id);
+        if (!bolehPutuskan(req.user, t)) { gagal.push({ id: t.objek_id, alasan: `Tahap ini diputuskan oleh ${t.peran}` }); continue; }
+        await c.query('SAVEPOINT v');
+        try { await putuskan(c, req.user, t.id, status === 'diverifikasi', req.body.catatan); await c.query('RELEASE SAVEPOINT v'); updated++; } catch (e) { await c.query('ROLLBACK TO SAVEPOINT v'); gagal.push({ id: t.objek_id, alasan: e.message }); }
       }
-      if (rows.length) await emit(c, 'bku.verified', String(rows[0].skpd_id), { skpd_id: rows[0].skpd_id, ids: rows.map((r) => r.id), status, user: req.user.full_name });
-      await audit(c, req.user, `bku_${status}`, 'bku', ids.join(','), { catatan: req.body.catatan }, req.ip);
-      return { updated: rows.length };
+      if (updated) await emit(c, 'bku.verified', String(rows[0].skpd_id), { skpd_id: rows[0].skpd_id, ids, status, user: req.user.full_name });
+      await audit(c, req.user, `bku_${status}`, 'bku', ids.join(','), { catatan: req.body.catatan, diputuskan: updated, gagal: gagal.length }, req.ip);
+      return { updated, gagal, dilewati: ids.length - rows.length };
     });
   });
 }

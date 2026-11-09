@@ -11,10 +11,10 @@ async function statusTahun(skpd, tahun) {
     query('SELECT k.*, u.full_name AS oleh FROM periode_kunci k LEFT JOIN users u ON u.id = k.dikunci_oleh WHERE k.skpd_id = $1 AND k.tahun = $2', [skpd, tahun]),
     query(`SELECT EXTRACT(MONTH FROM e.tanggal)::int AS bulan, COUNT(*)::int AS transaksi,
         SUM(e.penerimaan) AS penerimaan, SUM(e.pengeluaran) AS pengeluaran,
-        COUNT(*) FILTER (WHERE v.status IS NULL)::int AS belum_verifikasi,
+        COUNT(*) FILTER (WHERE v.status = 'menunggu')::int AS belum_verifikasi,
         COUNT(*) FILTER (WHERE v.status = 'ditolak')::int AS ditolak
       FROM bku_entries e
-      LEFT JOIN LATERAL (SELECT status FROM bku_verifications WHERE entry_id = e.id ORDER BY verified_at DESC LIMIT 1) v ON true
+      LEFT JOIN bku_status v ON v.entry_id = e.id
       WHERE e.skpd_id = $1 AND e.tahun = $2 GROUP BY 1`, [skpd, tahun]),
     query(`SELECT EXTRACT(MONTH FROM tanggal)::int AS bulan, COUNT(*)::int AS jumlah, MAX(tanggal) AS terakhir
       FROM penutupan_kas WHERE skpd_id = $1 AND EXTRACT(YEAR FROM tanggal) = $2 GROUP BY 1`, [skpd, tahun]),

@@ -9,6 +9,7 @@ import GantiPassword from './GantiPassword.jsx';
 import ProfilPengingat from './ProfilPengingat.jsx';
 import NotifBell from './NotifBell.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import SesiTimeout from './SesiTimeout.jsx';
 
 const EVT_TEXT = {
   'bku.entry.created': (d) => (d.bulk ? `${d.count} transaksi diimpor oleh ${d.user}` : `${d.user} mencatat: ${d.uraian?.slice(0, 60)} (${rp(Number(d.penerimaan) || Number(d.pengeluaran))})`),
@@ -18,7 +19,7 @@ const EVT_TEXT = {
   'periode.dibuka': (d) => `${d.user} membuka kunci periode ${d.bulan}/${d.tahun}`,
   'penerimaan.updated': (d) => (d.sts ? `${d.user} menyetor ${rp(d.total)} ke kas daerah (${d.sts})` : `${d.user} mencatat penerimaan ${rp(d.nilai)}`),
   'pembantu.updated': (d) => (d.spj ? `${d.user}: SPJ pembantu ${d.spj} ${d.status || 'diajukan'}` : `${d.user} memperbarui BKU bendahara pembantu`),
-  'persetujuan.updated': (d) => `${d.user} ${d.setuju ? 'menyetujui' : 'menolak'} ${d.objek === 'spj' ? 'SPJ fungsional' : 'SPP'} pada tahap ${d.tahap}`,
+  'persetujuan.updated': (d) => (d.ulang ? `${d.user} mengajukan ulang transaksi BKU` : `${d.user} ${d.setuju ? 'menyetujui' : 'menolak'} ${d.objek === 'spj' ? 'SPJ fungsional' : d.objek === 'bku' ? 'transaksi BKU' : 'SPP'}${d.tahap ? ` pada tahap ${d.tahap}` : ''}`),
   'spp.updated': (d) => `${d.user}: ${{ spp: 'SPP baru diajukan', spm: 'SPM diterbitkan', sp2d: 'SP2D dicatat dan dibukukan', ditolak: 'pengajuan SPP ditolak', disetujui: 'SPP disetujui satu tahap' }[d.status] || 'SPP diperbarui'}`,
 };
 
@@ -34,7 +35,7 @@ const store = {
 };
 
 export default function Layout() {
-  const { user, logout, skpdList, skpdId, setSkpdId, tahun, setTahun, live, can, theme, setTheme } = useApp();
+  const { user, logout, skpdList, skpdId, setSkpdId, tahun, setTahun, live, can, theme, setTheme, wajibGanti, setWajibGanti } = useApp();
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState(false);
   const [kontak, setKontak] = useState(false);
@@ -43,6 +44,7 @@ export default function Layout() {
   const loc = useLocation();
   const toast = useToast();
   useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => { if (new URLSearchParams(loc.search).has('ganti-password')) setPw(true); }, [loc.search]);
   useLive((evt) => {
     const f = EVT_TEXT[evt.type];
     if (f && evt.data?.user !== user.full_name) toast(f(evt.data), 'info');
@@ -157,7 +159,8 @@ export default function Layout() {
         <main className="mx-auto max-w-[1500px] px-4 pb-24 pt-6 sm:px-6 lg:pb-8"><Outlet /></main>
       </div>
       <MobileNav onMenu={() => setOpen(true)} canWrite={can('admin', 'bendahara')} />
-      <GantiPassword open={pw} onClose={() => setPw(false)} />
+      <GantiPassword open={pw || Boolean(wajibGanti)} wajib={wajibGanti} onClose={() => setPw(false)} onDone={() => setWajibGanti(null)} />
+      <SesiTimeout />
       <ProfilPengingat open={kontak} onClose={() => setKontak(false)} />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>

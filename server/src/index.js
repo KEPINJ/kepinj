@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { migrate } from './db/migrate.js';
+import { ensureAdmin } from './db/bootstrap.js';
 import { authPlugin, authRoutes } from './auth.js';
 import { startEventPipeline } from './events/bus.js';
 import bkuRoutes from './routes/bku.js';
@@ -31,6 +32,13 @@ import persetujuanRoutes from './routes/persetujuan.js';
 import pengingatLuarRoutes, { mulaiPenjadwal } from './routes/pengingatluar.js';
 import transferRoutes from './routes/transfer.js';
 import cadanganRoutes from './routes/cadangan.js';
+import rekonsiliasiRoutes from './routes/rekonsiliasi.js';
+import monitoringRoutes from './routes/monitoring.js';
+import akuntansiRoutes from './routes/akuntansi.js';
+import notifikasiRoutes from './routes/notifikasi.js';
+import keamananRoutes from './routes/keamanan.js';
+import asetRoutes from './routes/aset.js';
+import asistenRoutes from './routes/asisten.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, bodyLimit: 20 * 1024 * 1024, trustProxy: true });
@@ -55,13 +63,13 @@ export async function buildApp() {
     const message = err.code === '23505' ? 'Data dengan kunci yang sama sudah ada'
       : err.code === '23503' ? 'Referensi data tidak ditemukan (periksa kode/ID yang dipilih)'
       : status >= 500 ? 'Terjadi kesalahan pada server' : err.message;
-    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log });
+    reply.code(status).send({ error: message, masalah: err.masalah, log: err.log, alasan: err.alasan });
   });
 
   authRoutes(app);
   for (const r of [bkuRoutes, pajakRoutes, dataRoutes, laporanRoutes, masterRoutes, systemRoutes, tutupBukuRoutes, pengingatRoutes, spjRoutes, anomaliRoutes,
     sppRoutes, panjarRoutes, lampiranRoutes, dokumenRoutes, pimpinanRoutes, penerimaanRoutes, pembantuRoutes, tutupTahunRoutes,
-    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes]) await app.register(r);
+    anggaranKasRoutes, persetujuanRoutes, pengingatLuarRoutes, transferRoutes, cadanganRoutes, rekonsiliasiRoutes, monitoringRoutes, akuntansiRoutes, notifikasiRoutes, keamananRoutes, asetRoutes, asistenRoutes]) await app.register(r);
 
   if (existsSync(config.webDist)) {
     await app.register(fstatic, { root: config.webDist });
@@ -70,17 +78,28 @@ export async function buildApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Jalankan server (dipakai `node src/index.js` dan titik masuk cPanel `app.cjs`). */
+export async function start() {
   if (config.isProd && (config.jwtSecret.length < 32 || config.jwtSecret.startsWith('ganti'))) {
     console.error('JWT_SECRET wajib diisi string acak minimal 32 karakter di produksi');
     process.exit(1);
   }
   await migrate();
   const app = await buildApp();
+  await ensureAdmin(app.log);
   const stopEvents = await startEventPipeline(app.log);
-  await app.listen({ port: config.port, host: config.host });
+  if (typeof globalThis.PhusionPassenger !== 'undefined' || typeof globalThis.LsNode !== 'undefined') {
+    // Hosting cPanel (Phusion Passenger / LiteSpeed lsnode): socket diatur web server
+    await app.ready();
+    app.server.listen(typeof globalThis.PhusionPassenger !== 'undefined' ? 'passenger' : config.port);
+  } else {
+    await app.listen({ port: config.port, host: config.host });
+  }
   const stopJadwal = config.scheduler ? mulaiPenjadwal(app.log) : () => {};
+  let closing = false;
   const shutdown = async () => {
+    if (closing) return;
+    closing = true;
     stopJadwal();
     await app.close();
     await stopEvents();
@@ -90,3 +109,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) await start();

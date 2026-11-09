@@ -134,15 +134,19 @@ export async function startEventPipeline(logger) {
   }
   if (state.mode === 'memory') { state.connected = true; log.info('Event stream: bus internal (tanpa Kafka)'); }
 
-  const listener = new pg.Client({ connectionString: config.databaseUrl });
-  await listener.connect();
-  listener.on('notification', () => drain());
-  await listener.query('LISTEN outbox');
-  const timer = setInterval(drain, 2000);
+  // PGlite (hosting tanpa server PostgreSQL) tidak mendukung LISTEN dari koneksi lain: cukup polling outbox
+  let listener = null;
+  if (!config.databaseUrl.startsWith('pglite:')) {
+    listener = new pg.Client({ connectionString: config.databaseUrl });
+    await listener.connect();
+    listener.on('notification', () => drain());
+    await listener.query('LISTEN outbox');
+  }
+  const timer = setInterval(drain, listener ? 2000 : 700);
   drain();
   return async () => {
     clearInterval(timer);
-    await listener.end().catch(() => {});
+    await listener?.end().catch(() => {});
     await stopKafka();
   };
 }

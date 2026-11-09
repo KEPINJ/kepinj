@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Users, Plus, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Users, Plus, Pencil, ShieldHalf } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApp } from '../lib/ctx.jsx';
 import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, useLoad, useToast } from '../components/ui.jsx';
@@ -23,7 +24,7 @@ export default function Pengguna() {
   };
   return (
     <div className="space-y-4">
-      <PageHeader icon={Users} title="Pengguna" subtitle="Hak akses berbasis peran: Admin, Bendahara, Bendahara Penerimaan, Bendahara Pembantu, Verifikator, Pimpinan" actions={<Button icon={Plus} onClick={() => setEdit({ role: 'bendahara', active: true })}>Tambah pengguna</Button>} />
+      <PageHeader icon={Users} title="Pengguna" subtitle="Hak akses berbasis peran: Admin, Bendahara, Bendahara Penerimaan, Bendahara Pembantu, Verifikator, Pimpinan" actions={<><Link to="/keamanan?tab=pengguna"><Button variant="secondary" icon={ShieldHalf}>Kunci akun & reset password</Button></Link><Button icon={Plus} onClick={() => setEdit({ role: 'bendahara', active: true })}>Tambah pengguna</Button></>} />
       <Card bodyClass="overflow-x-auto">
         {loading ? <Loading /> : (
           <table className="w-full min-w-[700px] text-sm">
@@ -33,7 +34,7 @@ export default function Pengguna() {
                 <td className="td font-mono text-xs">{u.username}</td><td className="td">{u.full_name}</td><td className="td"><Badge color="blue">{ROLE[u.role]}</Badge></td>
                 <td className="td text-xs">{u.skpd_kode || '-'}{u.unit_nama && <p className="text-[11px] text-slate-500">{u.unit_nama}</p>}</td>
                 <td className="td text-[11px] text-slate-600">{u.email && <p>{u.email}</p>}{u.no_wa && <p className="font-mono">{u.no_wa}</p>}{!u.email && !u.no_wa && <span className="text-slate-400">-</span>}</td><td className="td text-xs">{waktu(u.last_login_at)}</td>
-                <td className="td">{u.active ? <Badge color="green">Aktif</Badge> : <Badge>Nonaktif</Badge>}</td>
+                <td className="td">{!u.active ? <Badge>Nonaktif</Badge> : u.terkunci_sampai && new Date(u.terkunci_sampai) > new Date() ? <Badge color="red">Terkunci</Badge> : <Badge color="green">Aktif</Badge>}{u.wajib_ganti_password && <p className="mt-0.5 text-[10px] text-amber-700">Wajib ganti password</p>}</td>
                 <td className="td"><button type="button" className="p-1 text-slate-400 hover:text-brand-700" onClick={() => setEdit({ ...u, password: '' })} aria-label="Ubah"><Pencil className="h-4 w-4" /></button></td>
               </tr>))}</tbody>
           </table>
@@ -51,7 +52,7 @@ export default function Pengguna() {
               <Field label="Email pengingat"><Input type="email" value={edit.email || ''} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="opsional" /></Field>
               <Field label="WhatsApp"><Input value={edit.no_wa || ''} onChange={(e) => setEdit({ ...edit, no_wa: e.target.value })} placeholder="08…" /></Field>
             </div>
-            <Field label={edit.id ? 'Password baru (kosongkan bila tidak diganti)' : 'Password'} hint="Minimal 8 karakter"><Input type="password" value={edit.password || ''} onChange={(e) => setEdit({ ...edit, password: e.target.value })} /></Field>
+            <Field label={edit.id ? 'Password baru (kosongkan bila tidak diganti)' : 'Password'} hint="Sesuai kebijakan password (min. 8 karakter, huruf + angka); pengguna wajib menggantinya saat login"><Input type="password" value={edit.password || ''} onChange={(e) => setEdit({ ...edit, password: e.target.value })} /></Field>
             {edit.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} />Akun aktif</label>}
           </div>
         )}

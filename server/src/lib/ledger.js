@@ -3,6 +3,7 @@ import { GENESIS, chainHash } from './hash.js';
 import { emit } from '../db.js';
 import { bad, isDate, money } from './http.js';
 import { NAMA_BULAN } from './kalender.js';
+import { daftarkanEntri, hitungKelengkapan } from './statusbku.js';
 
 export const JENIS_BKU = {
   SALDO_AWAL: 'Saldo awal', SP2D_UP: 'SP2D UP', SP2D_GU: 'SP2D GU', SP2D_TU: 'SP2D TU', SP2D_LS: 'SP2D LS',
@@ -93,6 +94,9 @@ export async function insertEntries(client, user, skpdId, rawEntries) {
     }
     await client.query('UPDATE bku_chain_head SET last_no = $3, last_hash = $4 WHERE skpd_id = $1 AND tahun = $2', [skpdId, tahun, no, prev]);
   }
+  // Status persetujuan berjenjang & kelengkapan dokumen untuk setiap entri baru
+  await daftarkanEntri(client, saved);
+  await hitungKelengkapan(client, saved.map((s) => s.id));
 
   // satu event per hari-SKPD untuk impor besar, per entri untuk input biasa
   if (saved.length <= 50) {

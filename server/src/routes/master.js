@@ -2,6 +2,8 @@
 import { query, tx, audit } from '../db.js';
 import { requireAuth, requireRole, hashPassword } from '../auth.js';
 import { bad, notFound, int, required, scopeSkpd } from '../lib/http.js';
+import { cekKebijakan, gantiPassword } from '../lib/keamanan.js';
+import { getPengaturan } from '../lib/pengaturan.js';
 
 const ENTITIES = {
   skpd: { table: 'skpd', key: 'id', order: 'kode', write: ['admin'], fields: ['kode', 'nama', 'alamat', 'npwp', 'nitku', 'kepala_nama', 'kepala_nip', 'bendahara_nama', 'bendahara_nip'], required: ['kode', 'nama'], search: ['kode', 'nama'] },
@@ -85,23 +87,26 @@ export default async function masterRoutes(app) {
 
   // Pengguna
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
-    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, u.unit_id, u.email, u.no_wa, u.active, u.last_login_at, s.kode AS skpd_kode, k.nama AS unit_nama FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id LEFT JOIN unit_kerja k ON k.id = u.unit_id ORDER BY u.username');
+    const { rows } = await query('SELECT u.id, u.username, u.full_name, u.role, u.skpd_id, u.unit_id, u.email, u.no_wa, u.active, u.last_login_at, u.gagal_login, u.terkunci_sampai, u.password_diubah_at, u.wajib_ganti_password, (SELECT COUNT(*)::int FROM sesi x WHERE x.user_id = u.id AND x.dicabut_at IS NULL AND x.kedaluwarsa_at > now()) AS sesi_aktif, s.kode AS skpd_kode, k.nama AS unit_nama FROM users u LEFT JOIN skpd s ON s.id = u.skpd_id LEFT JOIN unit_kerja k ON k.id = u.unit_id ORDER BY u.username');
     return { rows };
   });
   app.post('/api/users', { preHandler: requireRole('admin') }, async (req) => {
     const b = req.body || {};
     required(b, ['username', 'full_name', 'role']);
+    // Password yang ditetapkan admin bersifat sementara: pengguna wajib menggantinya saat login pertama
+    if (b.password) {
+      const salah = cekKebijakan(b.password, { username: b.username, min: Number((await getPengaturan()).password_min) || 8 });
+      if (salah.length) throw bad(`Password harus ${salah.join(', ')}`);
+    }
     return tx(async (c) => {
       let r;
       if (b.id) {
         ({ rows: [r] } = await c.query('UPDATE users SET full_name = $2, role = $3, skpd_id = $4, active = $5, unit_id = $6, email = $7, no_wa = $8 WHERE id = $1 RETURNING id, username, full_name, role, skpd_id, unit_id, email, no_wa, active', [b.id, b.full_name, b.role, clean(b.skpd_id), b.active !== false, b.role === 'bendahara_pembantu' ? clean(b.unit_id) ?? null : null, clean(b.email) ?? null, clean(b.no_wa) ?? null]));
-        if (b.password) {
-          if (String(b.password).length < 8) throw bad('Password minimal 8 karakter');
-          await c.query('UPDATE users SET password_hash = $2 WHERE id = $1', [b.id, await hashPassword(b.password)]);
-        }
+        if (b.password) await gantiPassword(c, b.id, b.password, { wajibGanti: true, alasan: 'reset_admin' });
+        if (b.active === false) await c.query("UPDATE sesi SET dicabut_at = now(), alasan_cabut = 'dicabut_admin' WHERE user_id = $1 AND dicabut_at IS NULL", [b.id]);
       } else {
-        if (!b.password || String(b.password).length < 8) throw bad('Password minimal 8 karakter');
-        ({ rows: [r] } = await c.query('INSERT INTO users (username, full_name, password_hash, role, skpd_id, unit_id, email, no_wa) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, username, full_name, role, skpd_id, unit_id, email, no_wa, active',
+        if (!b.password) throw bad('Password awal wajib diisi');
+        ({ rows: [r] } = await c.query('INSERT INTO users (username, full_name, password_hash, role, skpd_id, unit_id, email, no_wa, wajib_ganti_password) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id, username, full_name, role, skpd_id, unit_id, email, no_wa, active',
           [String(b.username).toLowerCase().trim(), b.full_name, await hashPassword(b.password), b.role, clean(b.skpd_id), b.role === 'bendahara_pembantu' ? clean(b.unit_id) ?? null : null, clean(b.email) ?? null, clean(b.no_wa) ?? null]));
       }
       await audit(c, req.user, b.id ? 'user_ubah' : 'user_tambah', 'user', r.id, { username: r.username, role: r.role }, req.ip);

@@ -1,20 +1,23 @@
 import {
   LayoutDashboard, BookOpen, Calculator, FileSpreadsheet, Upload, Landmark, ShieldCheck, Users, Database, Receipt,
   Wallet, BarChart3, Printer, ScrollText, Lock, Plus, FileCheck2, BookCopy, ShieldAlert, FileStack, HandCoins, Crown, PiggyBank, Network, CalendarCheck2,
-  Stamp, Send, CalendarRange, BellRing, DatabaseBackup,
+  Stamp, Send, CalendarRange, BellRing, DatabaseBackup, Bell, Gauge, BookCheck, FolderCheck, ShieldHalf, Boxes, ScanLine, Sparkles,
 } from 'lucide-react';
 
 // Struktur menu tunggal: dipakai sidebar, pencarian cepat (Ctrl+K) dan navigasi bawah di ponsel.
 export const NAV = [
   { group: 'Utama', items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, keywords: 'beranda ringkasan' },
+    { to: '/asisten', label: 'Asisten AI', icon: Sparkles, keywords: 'tanya ai chatbot analisis bahasa sehari-hari claude' },
+    { to: '/notifikasi', label: 'Pusat Notifikasi', icon: Bell, keywords: 'lonceng pemberitahuan tugas pengingat' },
     { to: '/peringatan', label: 'Peringatan Anomali', icon: ShieldAlert, keywords: 'duplikat ganda kas tunai pagu anomali temuan' },
     { to: '/laporan-pimpinan', label: 'Laporan Pimpinan', icon: Crown, roles: ['admin', 'pimpinan'], keywords: 'peringkat kinerja seluruh skpd serapan kepala daerah' },
   ] },
   { group: 'Kas & BKU', items: [
     { to: '/bku', label: 'Buku Kas Umum', icon: BookOpen, keywords: 'transaksi kas umum belanja penerimaan sp2d' },
     { to: '/spp', label: 'SPP · SPM · SP2D', icon: FileStack, keywords: 'pengajuan up gu tu ls gaji barang pencairan' },
-    { to: '/persetujuan', label: 'Persetujuan Berjenjang', icon: Stamp, keywords: 'approval setujui tolak verifikasi ppk pa kpa pengesahan spj spp' },
+    { to: '/persetujuan', label: 'Verifikasi & Persetujuan', icon: Stamp, keywords: 'approval setujui tolak verifikasi ppk pa kpa pengesahan spj spp berjenjang' },
+    { to: '/bukti', label: 'Dokumen Bukti', icon: FolderCheck, keywords: 'lampiran nota kuitansi bukti transfer sp2d pajak pertanggungjawaban kelengkapan unggah' },
     { to: '/transfer', label: 'Transfer Massal CMS', icon: Send, keywords: 'bank cms mcm bri bni bulk transfer rekanan pembayaran non tunai' },
     { to: '/penerimaan', label: 'Bendahara Penerimaan', icon: PiggyBank, keywords: 'retribusi pendapatan sts setoran kas daerah target' },
     { to: '/pembantu', label: 'Bendahara Pembantu', icon: Network, keywords: 'pelimpahan up unit kerja upt bidang spj pembantu' },
@@ -33,8 +36,14 @@ export const NAV = [
     { to: '/spj', label: 'SPJ Bendahara', icon: FileCheck2, keywords: 'pertanggungjawaban fungsional administratif laporan bulanan' },
     { to: '/buku-pembantu', label: 'Buku Pembantu', icon: BookCopy, keywords: 'kas tunai bank rincian objek up gu tu' },
     { to: '/anggaran-kas', label: 'Anggaran Kas & Perubahan', icon: CalendarRange, keywords: 'spd rencana penarikan dana pergeseran apbd perubahan apbd-p pagu' },
+    { to: '/monitoring-anggaran', label: 'Monitoring Pagu', icon: Gauge, keywords: 'pagu realisasi sisa persentase serapan antar skpd bulan indikator' },
     { to: '/realisasi', label: 'Realisasi Anggaran', icon: BarChart3, keywords: 'pagu dpa serapan' },
+    { to: '/akuntansi', label: 'Akuntansi & Jurnal', icon: BookCheck, keywords: 'jurnal buku besar neraca saldo akrual lo lra coa akun posting' },
     { to: '/laporan', label: 'Cetak Laporan', icon: Printer, keywords: 'print pdf excel' },
+  ] },
+  { group: 'Aset', items: [
+    { to: '/aset', label: 'Aset & QR Code', icon: Boxes, keywords: 'bmd barang inventaris kib label qr barcode inventarisasi' },
+    { to: '/aset/pindai', label: 'Pindai QR Aset', icon: ScanLine, keywords: 'scan kamera barcode pemeriksaan fisik' },
   ] },
   { group: 'Data', items: [
     { to: '/olah-data', label: 'Upload & Olah Data', icon: Upload, keywords: 'excel csv impor rumus' },
@@ -45,6 +54,7 @@ export const NAV = [
     { to: '/audit', label: 'Jejak Audit', icon: ScrollText, roles: ['admin', 'pimpinan', 'verifikator'], keywords: 'log aktivitas' },
     { to: '/pengguna', label: 'Pengguna', icon: Users, roles: ['admin'], keywords: 'akun user peran password' },
     { to: '/pengingat', label: 'Pengingat WA & Email', icon: BellRing, roles: ['admin'], keywords: 'whatsapp email notifikasi smtp fonnte jadwal' },
+    { to: '/keamanan', label: 'Keamanan & Aktivitas', icon: ShieldHalf, roles: ['admin', 'pimpinan'], keywords: 'login terkunci sesi timeout password audit data monitoring aktivitas' },
     { to: '/cadangan', label: 'Pencadangan Data', icon: DatabaseBackup, roles: ['admin'], keywords: 'backup restore pulihkan unduh database' },
   ] },
 ];
@@ -61,6 +71,10 @@ export const ACTIONS = [
   { to: '/persetujuan', label: 'Setujui dokumen yang menunggu', icon: Stamp, roles: ['admin', 'verifikator', 'pimpinan'], keywords: 'approval spp spj' },
   { to: '/transfer', label: 'Buat berkas transfer massal CMS', icon: Send, roles: ['admin', 'bendahara'], keywords: 'bank bulk' },
   { to: '/cadangan', label: 'Cadangkan data sekarang', icon: DatabaseBackup, roles: ['admin'], keywords: 'backup' },
+  { to: '/aset/pindai', label: 'Pindai QR aset', icon: ScanLine, keywords: 'scan kamera inventarisasi' },
+  { to: '/asisten', label: 'Tanya asisten AI', icon: Sparkles, keywords: 'chat analisis' },
+  { to: '/akuntansi', label: 'Posting jurnal otomatis', icon: BookCheck, roles: ['admin', 'verifikator'], keywords: 'akuntansi' },
+  { to: '/bukti?kelengkapan=kurang', label: 'Lengkapi dokumen bukti', icon: FolderCheck, roles: ['admin', 'bendahara'], keywords: 'unggah lampiran' },
   { to: '/panjar', label: 'Beri / pertanggungjawabkan panjar', icon: HandCoins, roles: ['admin', 'bendahara'], keywords: 'uang muka' },
 ];
 
